@@ -24,11 +24,14 @@ import uuid
 
 VERSION = 1
 MAX_TABS = 8
-MAX_REQUEST = 48 * 1024
+MAX_REQUEST = 128 * 1024
 MAX_RESPONSE = 192 * 1024
 MAX_HISTORY = 512 * 1024
 MAX_INPUT = 24 * 1024
 MAX_READ = 64 * 1024
+MAX_COMMAND_OUTPUT = 32 * 1024
+MAX_COMMAND_BYTES = 64 * 1024
+MAX_COMMANDS = 3
 IDLE_SECONDS = 20 * 60
 BRIDGE_DIR = Path.home() / ".local" / "share" / "phone-agent-bridge"
 CHILD_SETUP = """
@@ -251,7 +254,7 @@ class Bridge(socketserver.ThreadingTCPServer):
             }
             return not self.sessions and now - self.touched > IDLE_SECONDS
 
-    def dispatch(self, request):
+    def dispatch(self, request, _peer=None):
         if not isinstance(request, dict) or request.get("version") != VERSION:
             raise ValueError("Unsupported terminal bridge protocol.")
         operation = request.get("op")
@@ -295,6 +298,140 @@ class Bridge(socketserver.ThreadingTCPServer):
         raise ValueError("Unknown terminal operation.")
 
 
+def signal_group(pid, sig):
+    try:
+        os.killpg(pid, sig)
+        return True
+    except ProcessLookupError:
+        return False
+
+
+def stop_command(process):
+    if signal_group(process.pid, signal.SIGTERM):
+        time.sleep(0.75)
+        signal_group(process.pid, signal.SIGKILL)
+    process.wait()
+
+
+def command_exited(process):
+    if hasattr(os, "waitid") and hasattr(os, "WNOWAIT"):
+        return os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+    return process.poll() is not None
+
+
+def run_command(request, peer):
+    directory = request.get("directory")
+    command = request.get("command")
+    timeout = required_int(request, "timeoutMs")
+    if (not isinstance(directory, str) or not os.path.isabs(directory)
+            or "\0" in directory or len(os.fsencode(directory)) > 4096):
+        raise ValueError("Use an absolute Termux directory.")
+    if (not isinstance(command, str) or not command.strip()
+            or "\0" in command or len(command.encode("utf-8")) > MAX_COMMAND_BYTES):
+        raise ValueError("Use a shell command up to 64 KiB.")
+    if not 1000 <= timeout <= 3_600_000:
+        raise ValueError("Invalid command timeout.")
+
+    # Keeping one connection per command gives the bridge a lifetime to observe.
+    # A peer closed before launch must never leave behind a running job.
+    if select.select([peer], [], [], 0)[0]:
+        raise EOFError
+    shell = Path(sys.executable).with_name("bash")
+    if not shell.is_file():
+        shell = Path(os.getenv("PREFIX", "/usr")) / "bin" / "bash"
+    process = subprocess.Popen(
+        [str(shell), "-c", command],
+        cwd=directory,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    buffers = {process.stdout: bytearray(), process.stderr: bytearray()}
+    streams = set(buffers)
+    deadline = time.monotonic() + timeout / 1000
+    truncated = False
+    timed_out = False
+    drain_deadline = None
+    try:
+        while True:
+            if drain_deadline is None and command_exited(process):
+                # Signal the command group before collecting its exit status.
+                signal_group(process.pid, signal.SIGKILL)
+                process.wait()
+                drain_deadline = time.monotonic() + 0.25
+            exited = drain_deadline is not None
+            wait = deadline - time.monotonic()
+            if exited and time.monotonic() >= drain_deadline:
+                truncated = True
+                break
+            if wait <= 0 and not exited:
+                timed_out = True
+                break
+            ready, _, _ = select.select([peer, *streams], [], [], 0 if exited else min(wait, 0.25))
+            if peer in ready:
+                raise EOFError
+            if exited and not ready:
+                break
+            for pipe in ready:
+                data = os.read(pipe.fileno(), 8192)
+                if not data:
+                    streams.remove(pipe)
+                    continue
+                buffer = buffers[pipe]
+                room = MAX_COMMAND_OUTPUT - len(buffer)
+                buffer.extend(data[:room])
+                truncated |= len(data) > room
+    finally:
+        try:
+            if process.returncode is None:
+                stop_command(process)
+        finally:
+            process.stdout.close()
+            process.stderr.close()
+
+    code = process.returncode
+    return {
+        "stdout": base64.b64encode(buffers[process.stdout]).decode("ascii"),
+        "stderr": base64.b64encode(buffers[process.stderr]).decode("ascii"),
+        "exit": 124 if timed_out else (128 - code if code < 0 else code),
+        "timedOut": timed_out,
+        "truncated": truncated,
+    }
+
+
+class CommandBridge(Bridge):
+    def __init__(self, key):
+        super().__init__(key)
+        self.command_slots = threading.BoundedSemaphore(MAX_COMMANDS)
+        self.running = 0
+
+    def reap(self):
+        with self.lock:
+            return not self.running and time.monotonic() - self.touched > IDLE_SECONDS
+
+    def dispatch(self, request, peer=None):
+        if not isinstance(request, dict) or request.get("version") != VERSION:
+            raise ValueError("Unsupported command bridge protocol.")
+        operation = request.get("op")
+        if operation not in ("ping", "run"):
+            raise ValueError("Unknown command operation.")
+        with self.lock:
+            self.touched = time.monotonic()
+            if operation == "ping":
+                return {"version": VERSION}
+            if not self.command_slots.acquire(blocking=False):
+                raise ValueError("Too many Termux commands are already running.")
+            self.running += 1
+        try:
+            return run_command(request, peer)
+        finally:
+            with self.lock:
+                self.running -= 1
+                self.touched = time.monotonic()
+                self.command_slots.release()
+
+
 def required_int(request, field):
     value = request.get(field)
     if not isinstance(value, int) or isinstance(value, bool):
@@ -315,7 +452,7 @@ class BridgeHandler(socketserver.BaseRequestHandler):
             if not hmac.compare_digest(recv_exact(sock, 32), signature(key, b"q", client, server, body)):
                 return
             try:
-                result = self.server.dispatch(json.loads(body))
+                result = self.server.dispatch(json.loads(body), sock)
             except (ValueError, TypeError, binascii.Error) as error:
                 result = {"error": str(error)}
             except OSError as error:
@@ -337,20 +474,25 @@ def atomic_write(path, data):
         temporary.unlink(missing_ok=True)
 
 
-def serve():
+def serve(command_only=False):
     key = secrets.token_bytes(32)
-    with Bridge(key) as bridge:
+    bridge_type = CommandBridge if command_only else Bridge
+    with bridge_type(key) as bridge:
         config = {"version": VERSION, "port": bridge.server_address[1], "key": key.hex()}
-        atomic_write(BRIDGE_DIR / "socket.json", encode(config))
+        atomic_write(BRIDGE_DIR / connection_file(command_only), encode(config))
         print("ready", flush=True)
         bridge.timeout = 5
         while not bridge.reap():
             bridge.handle_request()
 
 
-def current_connection():
+def connection_file(command_only):
+    return "command-socket.json" if command_only else "socket.json"
+
+
+def current_connection(command_only=False):
     try:
-        config = json.loads((BRIDGE_DIR / "socket.json").read_bytes())
+        config = json.loads((BRIDGE_DIR / connection_file(command_only)).read_bytes())
         if config["version"] == VERSION and ask(config, {"version": VERSION, "op": "ping"}) == {"version": VERSION}:
             return config
     except (OSError, ValueError, EOFError, KeyError):
@@ -358,19 +500,19 @@ def current_connection():
     return None
 
 
-def provision():
+def provision(command_only=False):
     os.umask(0o077)
     BRIDGE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     with (BRIDGE_DIR / "provision.lock").open("ab") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        config = current_connection()
+        config = current_connection(command_only)
         if config is None:
             source = globals().get("bridge_source")
             source_bytes = source.encode("utf-8") if source is not None else Path(__file__).read_bytes()
-            script = BRIDGE_DIR / "bridge.py"
+            script = BRIDGE_DIR / ("command-bridge.py" if command_only else "bridge.py")
             atomic_write(script, source_bytes)
             daemon = subprocess.Popen(
-                [sys.executable, str(script), "--serve"],
+                [sys.executable, str(script), "--serve-commands" if command_only else "--serve"],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
@@ -380,7 +522,7 @@ def provision():
                 if not select.select([ready], [], [], 4)[0] or ready.readline() != b"ready\n":
                     daemon.terminate()
                     raise RuntimeError("The PTY bridge failed to start.")
-            config = current_connection()
+            config = current_connection(command_only)
             if config is None:
                 daemon.terminate()
                 raise RuntimeError("The PTY bridge failed its connection check.")
@@ -392,5 +534,9 @@ if __name__ == "__main__":
         serve()
     elif sys.argv[1:] == ["--provision"]:
         provision()
+    elif sys.argv[1:] == ["--serve-commands"]:
+        serve(command_only=True)
+    elif sys.argv[1:] == ["--provision-commands"]:
+        provision(command_only=True)
     else:
         sys.exit("Use --provision from Phone Agent.")

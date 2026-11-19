@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -96,6 +97,27 @@ class TermuxRuntime(context: Context) {
         return execute(BASH, arrayOf("-c", script, "phone-agent", workDir, seconds, command), timeoutMs + 6_000)
     }
 
+    suspend fun runManaged(
+        command: String,
+        workDir: String,
+        timeoutMs: Long = 120_000,
+    ): CommandResult {
+        require(validDirectory(workDir)) { "Enter an absolute Termux project directory." }
+        requireCommand(command)
+        require(timeoutMs in 1_000..3_600_000)
+        return try {
+            connectBridge(commandOnly = true).run(command, workDir, timeoutMs)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: BridgeFailure) {
+            CommandResult(error = failure.message)
+        } catch (_: java.io.IOException) {
+            CommandResult(error = "The Termux command connection was lost.")
+        } catch (failure: IllegalStateException) {
+            CommandResult(error = failure.message)
+        }
+    }
+
     suspend fun probe(): CommandResult = execute(
         BASH, arrayOf("-c", "printf 'termux-ready\\n'; command -v python3 || true"), 10_000,
     )
@@ -106,9 +128,10 @@ class TermuxRuntime(context: Context) {
         return cachedBridge()?.takeIf { it.isReachable() }
     }
 
-    internal suspend fun connectBridge(): BridgeClient = bridgeLock.withLock {
+    internal suspend fun connectBridge(commandOnly: Boolean = false): BridgeClient = bridgeLock.withLock {
         requireConnection()
-        cachedBridge()?.let { client ->
+        val settingsKey = if (commandOnly) COMMAND_BRIDGE_CONFIG else BRIDGE_CONFIG
+        cachedBridge(settingsKey)?.let { client ->
             if (client.isReachable()) return@withLock client
         }
         val source = withContext(Dispatchers.IO) {
@@ -116,7 +139,10 @@ class TermuxRuntime(context: Context) {
         }
         val result = execute(
             "$BIN/python3",
-            arrayOf("-c", "import sys; bridge_source = sys.argv.pop(1); exec(bridge_source)", source, "--provision"),
+            arrayOf(
+                "-c", "import sys; bridge_source = sys.argv.pop(1); exec(bridge_source)", source,
+                if (commandOnly) "--provision-commands" else "--provision",
+            ),
             12_000,
         )
         check(result.error == null && result.exitCode == 0) {
@@ -129,13 +155,13 @@ class TermuxRuntime(context: Context) {
         val client = BridgeClient(config.getInt("port"), config.getString("key"))
         check(client.isReachable()) { "The Termux bridge stopped before connecting." }
         withContext(Dispatchers.IO) {
-            bridgeSettings.edit().putString(BRIDGE_CONFIG, config.toString()).commit()
+            bridgeSettings.edit().putString(settingsKey, config.toString()).commit()
         }
         client
     }
 
-    private fun cachedBridge(): BridgeClient? {
-        val raw = bridgeSettings.getString(BRIDGE_CONFIG, null) ?: return null
+    private fun cachedBridge(settingsKey: String = BRIDGE_CONFIG): BridgeClient? {
+        val raw = bridgeSettings.getString(settingsKey, null) ?: return null
         return runCatching {
             val config = JSONObject(raw)
             check(config.optInt("version") == BridgeClient.VERSION)
@@ -206,6 +232,7 @@ class TermuxRuntime(context: Context) {
         private const val BIN = "/data/data/com.termux/files/usr/bin"
         private const val BASH = "$BIN/bash"
         private const val BRIDGE_CONFIG = "connection"
+        private const val COMMAND_BRIDGE_CONFIG = "command_connection"
         private const val MAX_COMMAND_BYTES = 64 * 1024
     }
 }

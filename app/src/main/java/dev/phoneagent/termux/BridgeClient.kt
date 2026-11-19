@@ -1,6 +1,7 @@
 package dev.phoneagent.termux
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.DataInputStream
@@ -38,6 +39,23 @@ internal class BridgeClient(private val port: Int, hexKey: String) {
         call("ping").optInt("version") == VERSION
     } catch (_: IOException) {
         false
+    }
+
+    suspend fun run(command: String, directory: String, timeoutMs: Long): CommandResult {
+        val reply = call("run", replyTimeoutMs = (timeoutMs + 4_000).toInt()) {
+            put("command", command)
+            put("directory", directory)
+            put("timeoutMs", timeoutMs)
+        }
+        fun output(field: String): String =
+            Base64.getDecoder().decode(reply.getString(field)).toString(Charsets.UTF_8)
+        return CommandResult(
+            stdout = output("stdout"),
+            stderr = output("stderr"),
+            exitCode = reply.getInt("exit"),
+            error = if (reply.getBoolean("timedOut")) "Termux command timed out." else null,
+            truncated = reply.getBoolean("truncated"),
+        )
     }
 
     suspend fun list(): List<TerminalTab> {
@@ -90,33 +108,47 @@ internal class BridgeClient(private val port: Int, hexKey: String) {
 
     private fun tab(value: JSONObject) = TerminalTab(value.getString("id"), value.getString("directory"))
 
-    private suspend fun call(op: String, fields: JSONObject.() -> Unit = {}): JSONObject =
-        withContext(Dispatchers.IO) {
-            val request = JSONObject().put("version", VERSION).put("op", op).apply(fields)
-                .toString().toByteArray(Charsets.UTF_8)
-            if (request.size > MAX_REQUEST) throw BridgeFailure("Bridge request is too large.")
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress("127.0.0.1", port), IO_TIMEOUT_MS)
-                socket.soTimeout = IO_TIMEOUT_MS
-                socket.tcpNoDelay = true
-                val input = DataInputStream(socket.getInputStream())
-                val output = DataOutputStream(socket.getOutputStream())
-                val client = ByteArray(32).also(random::nextBytes)
-                output.write(client)
-                val server = ByteArray(32).also(input::readFully)
-                verify(input, signature('s', client, server))
-                output.writeInt(request.size)
-                output.write(request)
-                output.write(signature('q', client, server, request))
-                val size = input.readInt()
-                if (size !in 1..MAX_RESPONSE) throw BridgeFailure("Invalid bridge response length.")
-                val response = ByteArray(size).also(input::readFully)
-                verify(input, signature('r', client, server, response))
-                val reply = JSONObject(response.toString(Charsets.UTF_8))
-                if (reply.has("error")) throw BridgeFailure(reply.getString("error"), reply.optBoolean("missing"))
-                reply
+    private suspend fun call(
+        op: String,
+        replyTimeoutMs: Int = IO_TIMEOUT_MS,
+        fields: JSONObject.() -> Unit = {},
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val request = JSONObject().put("version", VERSION).put("op", op).apply(fields)
+            .toString().toByteArray(Charsets.UTF_8)
+        if (request.size > MAX_REQUEST) throw BridgeFailure("Bridge request is too large.")
+        suspendCancellableCoroutine { continuation ->
+            val result = runCatching {
+                Socket().use { socket ->
+                    continuation.invokeOnCancellation { runCatching { socket.close() } }
+                    exchange(socket, request, replyTimeoutMs)
+                }
             }
+            continuation.resumeWith(result)
         }
+    }
+
+    private fun exchange(socket: Socket, request: ByteArray, replyTimeoutMs: Int): JSONObject {
+        socket.connect(InetSocketAddress("127.0.0.1", port), IO_TIMEOUT_MS)
+        socket.soTimeout = IO_TIMEOUT_MS
+        socket.tcpNoDelay = true
+        val input = DataInputStream(socket.getInputStream())
+        val output = DataOutputStream(socket.getOutputStream())
+        val client = ByteArray(32).also(random::nextBytes)
+        output.write(client)
+        val server = ByteArray(32).also(input::readFully)
+        verify(input, signature('s', client, server))
+        output.writeInt(request.size)
+        output.write(request)
+        output.write(signature('q', client, server, request))
+        socket.soTimeout = replyTimeoutMs
+        val size = input.readInt()
+        if (size !in 1..MAX_RESPONSE) throw BridgeFailure("Invalid bridge response length.")
+        val response = ByteArray(size).also(input::readFully)
+        verify(input, signature('r', client, server, response))
+        val reply = JSONObject(response.toString(Charsets.UTF_8))
+        if (reply.has("error")) throw BridgeFailure(reply.getString("error"), reply.optBoolean("missing"))
+        return reply
+    }
 
     private fun signature(kind: Char, client: ByteArray, server: ByteArray, body: ByteArray = byteArrayOf()): ByteArray {
         val mac = Mac.getInstance("HmacSHA256")
@@ -135,7 +167,7 @@ internal class BridgeClient(private val port: Int, hexKey: String) {
     companion object {
         const val VERSION = 1
         private const val MAX_INPUT = 24 * 1024
-        private const val MAX_REQUEST = 48 * 1024
+        private const val MAX_REQUEST = 128 * 1024
         private const val MAX_RESPONSE = 192 * 1024
         private const val IO_TIMEOUT_MS = 2_500
         private val random = SecureRandom()

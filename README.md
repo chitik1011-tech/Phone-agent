@@ -30,7 +30,7 @@ The debug APK is at `app/build/outputs/apk/debug/app-debug.apk`. To execute Andr
 - Interactive Termux uses the Termux app's user permissions. Scoped file tools check relative paths and reject common credential paths. Shell commands require individual approval because a Termux process can access more than the current project.
 - File edits in Android folder grants follow the storage provider's write semantics. Termux project writes use atomic replacement. Text file operations support UTF-8 source files up to 20 KB.
 - Independent reviewers use their own requests and context. Review tasks can read project files, and the main agent handles changes. A step limit bounds each run.
-- The foreground session stops when the job is cancelled. An official RUN_COMMAND subprocess may continue until its timeout if the host app is terminated. The interactive PTY supports separate interrupt and stop operations.
+- Stopping an approved shell command closes its authenticated connection. The Termux bridge stops the command process group on disconnect or timeout. Short file helpers still use RUN_COMMAND with a bounded timeout. Interactive terminal tabs have their own interrupt and stop controls.
 - The ChatGPT option opens and checks the official Codex CLI login in Termux. The native agent uses its separately configured API endpoint.
 
 See [device checks](docs/device-checks.md) for verification on Android and ColorOS.
