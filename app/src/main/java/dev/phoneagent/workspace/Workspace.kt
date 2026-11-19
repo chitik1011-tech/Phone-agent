@@ -184,7 +184,7 @@ private class TermuxWorkspace(
         file("edit", path, oldText, newText)
 
     override suspend fun command(command: String): String {
-        val result = runtime.run(command, ref.location)
+        val result = runtime.runManaged(command, ref.location)
         return buildString {
             result.error?.let { appendLine(it) }
             appendLine("Exit code: ${result.exitCode ?: "unknown"}")

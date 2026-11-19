@@ -32,6 +32,12 @@ class BridgeTest(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.workspace = tempfile.TemporaryDirectory()
+        shell = Path(self.workspace.name) / "test-shell"
+        shell.write_text("#!/bin/sh\nexec /bin/bash --noprofile --norc -i\n")
+        shell.chmod(0o700)
+        environment = patch.dict(os.environ, {"SHELL": str(shell)})
+        environment.start()
+        self.addCleanup(environment.stop)
         self.ids = []
 
     def tearDown(self):
@@ -152,13 +158,24 @@ class ProvisionTest(unittest.TestCase):
                     second_out = io.StringIO()
                     with redirect_stdout(second_out):
                         bridge.provision()
+                    command_out = io.StringIO()
+                    repeated_out = io.StringIO()
+                    with redirect_stdout(command_out):
+                        bridge.provision(command_only=True)
+                    with redirect_stdout(repeated_out):
+                        bridge.provision(command_only=True)
 
-                self.assertEqual(1, len(children))
+                self.assertEqual(2, len(children))
                 self.assertEqual(first_out.getvalue(), second_out.getvalue())
+                self.assertEqual(command_out.getvalue(), repeated_out.getvalue())
                 config = json.loads(first_out.getvalue())
+                command_config = json.loads(command_out.getvalue())
+                self.assertNotEqual(config["port"], command_config["port"])
+                self.assertEqual({"version": 1}, bridge.ask(command_config, {"version": 1, "op": "ping"}))
                 self.assertEqual({"version": 1}, bridge.ask(config, {"version": 1, "op": "ping"}))
                 self.assertEqual(0o700, stat.S_IMODE(state_directory.stat().st_mode))
                 self.assertEqual(0o600, stat.S_IMODE((state_directory / "socket.json").stat().st_mode))
+                self.assertEqual(0o600, stat.S_IMODE((state_directory / "command-socket.json").stat().st_mode))
             finally:
                 os.umask(old_mask)
                 for child in children:
