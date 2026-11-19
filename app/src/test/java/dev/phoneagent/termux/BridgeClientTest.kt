@@ -23,12 +23,16 @@ class BridgeClientTest {
         val home = Files.createTempDirectory("phone-agent-termux-test")
         val state = Files.createDirectories(home.resolve(".local/share/phone-agent-bridge")).resolve("socket.json")
         try {
+            val shell = home.resolve("test-shell").toFile().apply {
+                writeText("#!/bin/sh\nexec /bin/bash --noprofile --norc -i\n")
+                check(setExecutable(true)) { "Could not set up the test shell." }
+            }
             val server = ProcessBuilder("python3", script.toString(), "--serve")
                 .redirectOutput(home.resolve("bridge.stdout").toFile())
                 .redirectError(ProcessBuilder.Redirect.INHERIT)
                 .apply {
                     environment()["HOME"] = home.toString()
-                    environment()["SHELL"] = "/bin/bash"
+                    environment()["SHELL"] = shell.absolutePath
                     environment().remove("BASH_ENV")
                 }
                 .start()

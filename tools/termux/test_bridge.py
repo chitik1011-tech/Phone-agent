@@ -32,6 +32,12 @@ class BridgeTest(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.workspace = tempfile.TemporaryDirectory()
+        shell = Path(self.workspace.name) / "test-shell"
+        shell.write_text("#!/bin/sh\nexec /bin/bash --noprofile --norc -i\n")
+        shell.chmod(0o700)
+        environment = patch.dict(os.environ, {"SHELL": str(shell)})
+        environment.start()
+        self.addCleanup(environment.stop)
         self.ids = []
 
     def tearDown(self):
