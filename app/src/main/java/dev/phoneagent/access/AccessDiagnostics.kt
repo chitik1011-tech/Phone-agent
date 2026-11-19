@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.phoneagent.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -41,17 +42,17 @@ fun AccessDiagnostics(modifier: Modifier = Modifier) {
 
 @Composable
 private fun ShizukuDiagnostics() {
-    val context = LocalContext.current
+    val labels = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
-    var status by remember { mutableStateOf("Checking service…") }
+    var status by remember { mutableStateOf(labels.getString(R.string.shizuku_checking)) }
     var canRequest by remember { mutableStateOf(false) }
     var requestPending by remember { mutableStateOf(false) }
     var refreshJob by remember { mutableStateOf<Job?>(null) }
     fun refresh() {
         refreshJob?.cancel()
         refreshJob = scope.launch {
-            val result = withContext(Dispatchers.IO) { shizukuStatus(context) }
+            val result = withContext(Dispatchers.IO) { shizukuStatus(labels) }
             status = result.message
             canRequest = result.canRequest
             if (!result.canRequest) requestPending = false
@@ -69,7 +70,7 @@ private fun ShizukuDiagnostics() {
                 if (grantResult == PackageManager.PERMISSION_GRANTED) {
                     refresh()
                 } else {
-                    status = "Permission declined. You can manage access in Shizuku."
+                    status = labels.getString(R.string.shizuku_denied)
                 }
             }
         }
@@ -88,7 +89,7 @@ private fun ShizukuDiagnostics() {
             Shizuku.removeRequestPermissionResultListener(permission)
         }
     }
-    AccessCard("Shizuku", "Verify service availability and app permission.") {
+    AccessCard("Shizuku", labels.getString(R.string.shizuku_hint)) {
         Text(status, style = MaterialTheme.typography.bodyMedium)
         if (canRequest) {
             Button(
@@ -102,40 +103,41 @@ private fun ShizukuDiagnostics() {
                         refresh()
                     }
                 },
-            ) { Text(if (requestPending) "Waiting for Shizuku…" else "Request Shizuku permission") }
+            ) { Text(if (requestPending) labels.getString(R.string.wait_shizuku) else labels.getString(R.string.request_shizuku)) }
         } else {
-            OutlinedButton(onClick = ::refresh) { Text("Refresh Shizuku") }
+            OutlinedButton(onClick = ::refresh) { Text(labels.getString(R.string.refresh_shizuku)) }
         }
     }
 }
 
 @Composable
 private fun RootDiagnostics() {
+    val labels = LocalContext.current
     val scope = rememberCoroutineScope()
-    var status by remember { mutableStateOf("Ready to check.") }
+    var status by remember { mutableStateOf(labels.getString(R.string.root_ready)) }
     var checking by remember { mutableStateOf(false) }
-    AccessCard("Root", "Run an identity check through your installed root manager.") {
+    AccessCard("Root", labels.getString(R.string.root_help)) {
         Text(status, style = MaterialTheme.typography.bodyMedium)
         OutlinedButton(
             enabled = !checking,
             onClick = {
                 checking = true
-                status = "Waiting for the root manager…"
+                status = labels.getString(R.string.root_waiting)
                 scope.launch {
                     try {
                         status = when (val result = checkRootIdentity()) {
-                            RootIdentity.Verified -> "Root verified (UID 0)."
-                            RootIdentity.Unavailable -> "The app could not run su."
-                            RootIdentity.TimedOut -> "The root manager did not respond within 30 seconds."
-                            is RootIdentity.Unverified -> result.uid?.let { "Root unverified (UID $it)." }
-                                ?: "Root unverified (exit code ${result.exitCode}). Check your root manager."
+                            RootIdentity.Verified -> labels.getString(R.string.root_verified)
+                            RootIdentity.Unavailable -> labels.getString(R.string.root_missing)
+                            RootIdentity.TimedOut -> labels.getString(R.string.root_timeout)
+                            is RootIdentity.Unverified -> result.uid?.let { labels.getString(R.string.root_uid, it) }
+                                ?: labels.getString(R.string.root_exit, result.exitCode)
                         }
                     } finally {
                         checking = false
                     }
                 }
             },
-        ) { Text("Check root identity") }
+        ) { Text(labels.getString(R.string.root_identity)) }
     }
 }
 
@@ -160,10 +162,10 @@ private fun shizukuStatus(context: Context): ShizukuStatus {
     return try {
         when {
             !Shizuku.pingBinder() -> ShizukuStatus(
-                if (isShizukuInstalled(context)) "Start the service in Shizuku and return here."
-                else "Shizuku is unavailable on this device.",
+                if (isShizukuInstalled(context)) context.getString(R.string.shizuku_start)
+                else context.getString(R.string.shizuku_missing),
             )
-            Shizuku.isPreV11() -> ShizukuStatus("Update Shizuku to v11 or later.")
+            Shizuku.isPreV11() -> ShizukuStatus(context.getString(R.string.shizuku_update))
             Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED -> {
                 val uid = Shizuku.getUid()
                 val access = when (uid) {
@@ -171,14 +173,14 @@ private fun shizukuStatus(context: Context): ShizukuStatus {
                     2000 -> "ADB shell"
                     else -> "UID $uid"
                 }
-                ShizukuStatus("Permission granted. Service is running as $access.")
+                ShizukuStatus(context.getString(R.string.shizuku_granted, access))
             }
             Shizuku.shouldShowRequestPermissionRationale() ->
-                ShizukuStatus("Enable access for PHONE AGENT in Shizuku.")
-            else -> ShizukuStatus("Service is running. App permission is required.", canRequest = true)
+                ShizukuStatus(context.getString(R.string.shizuku_enable))
+            else -> ShizukuStatus(context.getString(R.string.shizuku_permission), canRequest = true)
         }
     } catch (_: RuntimeException) {
-        ShizukuStatus("The Shizuku service disconnected. Refresh to check again.")
+        ShizukuStatus(context.getString(R.string.shizuku_disconnected))
     }
 }
 

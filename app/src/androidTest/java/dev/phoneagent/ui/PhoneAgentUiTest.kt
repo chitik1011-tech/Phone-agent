@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -83,7 +84,7 @@ class PhoneAgentUiTest {
             var destination by remember { mutableStateOf(Destination.HOME) }
             PhoneAgentTheme(AppTheme.LIGHT) {
                 PhoneAgentShell(destination, onNavigate = { destination = it }) {
-                    Text("Active destination is ${it.label}")
+                    Text("Active destination is ${stringResource(it.labelResource)}")
                 }
             }
         }

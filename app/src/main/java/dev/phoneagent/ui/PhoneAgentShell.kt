@@ -41,15 +41,17 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.phoneagent.R
 
-enum class Destination(val label: String) {
-    HOME("Home"),
-    WORKSPACE("Workspace"),
-    TERMINAL("Terminal"),
-    AGENTS("Agents"),
-    SETTINGS("Settings"),
+enum class Destination(val labelResource: Int) {
+    AGENTS(R.string.nav_agents),
+    WORKSPACE(R.string.nav_workspace),
+    TERMINAL(R.string.nav_terminal),
+    HOME(R.string.nav_home),
+    SETTINGS(R.string.nav_settings),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -98,7 +100,7 @@ fun PhoneAgentShell(
                             selected = item == destination,
                             onClick = { navigate(item) },
                             icon = { DestinationIcon(item) },
-                            label = { Text(item.label, maxLines = 1) },
+                            label = { Text(stringResource(item.labelResource), maxLines = 1) },
                             colors = NavigationRailItemDefaults.colors(
                                 indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
                             ),
@@ -125,7 +127,7 @@ fun PhoneAgentShell(
                                 icon = { DestinationIcon(item) },
                                 label = {
                                     Text(
-                                        item.label,
+                                        stringResource(item.labelResource),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.labelSmall,

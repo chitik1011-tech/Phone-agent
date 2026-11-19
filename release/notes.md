@@ -1,9 +1,6 @@
-This preview improves cancellation for approved Termux shell commands. It keeps the existing interactive PTY and its terminal tabs separate from agent commands.
+## Phone Agent 0.1.3 preview
 
-- Stopping an agent closes the command connection. The bridge terminates the command's process group on disconnect or timeout.
-- Command results include separate stdout, stderr, an exit code, and a flag when either stream exceeds its 32 KiB capture limit.
-- The app does not replay a submitted command if its connection is lost. A shell command that detaches into a separate process group can outlive the original group.
-
-Install the attached APK on Android 10 or later. Termux 0.118 or later, Python in Termux, `allow-external-apps=true`, and the Android RUN_COMMAND permission are required for the bridge. A debug APK can be updated in place only by an APK signed with the same certificate.
-
-The process-group tests run against real Linux child processes. Android delivery to Termux and the full OnePlus Ace 5 / ColorOS force-stop scenario still need a physical-device check. See `docs/device-checks.md`.
+- The agent chat opens immediately on launch. A project is optional for chat. Attach a project to give the agent access to workspace tools.
+- Select the model from the chat toolbar. After setting up a provider, browse its model catalog or enter a model ID.
+- The app follows Android's language setting. You can also choose Русский or English under Settings → Language.
+- The APK includes v1, v2 and v3 signatures. In-place updates require the same certificate as the installed build. CI preview builds use a debug certificate unless release signing is configured.

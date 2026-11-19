@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.phoneagent.termux.TermuxRuntime
 import dev.phoneagent.workspace.WorkspaceRef
@@ -32,6 +33,7 @@ internal fun ProjectCreation(
     onDismiss: () -> Unit,
     onCreated: (WorkspaceRef) -> Unit,
 ) {
+    val labels = LocalContext.current
     var name by remember { mutableStateOf("") }
     var remote by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -39,27 +41,27 @@ internal fun ProjectCreation(
     val scope = rememberCoroutineScope()
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(if (clone) "Clone repository" else "New Termux project") },
+        title = { Text(if (clone) labels.getString(R.string.clone_repository) else labels.getString(R.string.new_termux_project)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (clone) {
                     OutlinedTextField(
                         value = remote, onValueChange = { remote = it },
-                        label = { Text("HTTPS repository URL") },
+                        label = { Text(labels.getString(R.string.git_clone_url)) },
                         singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 OutlinedTextField(
                     value = name, onValueChange = { name = it },
-                    label = { Text("New folder in Termux home") },
+                    label = { Text(labels.getString(R.string.termux_new_folder)) },
                     singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
                 )
                 if (clone) {
                     TextButton(enabled = !busy, onClick = {
                         runCatching { runtime.launchInteractiveCommand("gh auth login --hostname github.com --web") }
                             .onFailure { status = it.message ?: "Could not open GitHub CLI login." }
-                    }) { Text("Sign in with GitHub CLI") }
-                    Text("Private repositories need Git credentials configured in Termux.", style = MaterialTheme.typography.bodySmall)
+                    }) { Text(labels.getString(R.string.git_cli_signin)) }
+                    Text(labels.getString(R.string.git_private_help), style = MaterialTheme.typography.bodySmall)
                 }
                 if (status.isNotBlank()) Text(status, color = MaterialTheme.colorScheme.error)
             }
@@ -102,10 +104,10 @@ internal fun ProjectCreation(
                         }
                     }
                 },
-            ) { Text(if (busy) "Working…" else if (clone) "Clone" else "Create") }
+            ) { Text(if (busy) labels.getString(R.string.working) else if (clone) labels.getString(R.string.clone) else labels.getString(R.string.create)) }
         },
         dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") }
+            TextButton(enabled = !busy, onClick = onDismiss) { Text(labels.getString(R.string.cancel)) }
         },
     )
 }

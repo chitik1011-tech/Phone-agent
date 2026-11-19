@@ -11,14 +11,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal enum class PromptProfile(val label: String, val instruction: String) {
-    DEFAULT("Default", ""),
-    CODING("Coding", "Make focused changes. Follow the repository's existing conventions and run targeted checks."),
-    DEBUGGING("Debugging", "Reproduce the failure, identify the cause from evidence, and verify the fix."),
-    ARCHITECT("Architect", "Trace the boundaries between components before changing their interfaces."),
-    RESEARCH("Research", "Gather evidence and point to concrete source locations in your conclusions."),
-    MINIMAL("Minimal", "Keep changes and explanations concise."),
-    CUSTOM("Custom", ""),
+internal enum class PromptProfile(val labelResource: Int, val instruction: String) {
+    DEFAULT(R.string.profile_default, ""),
+    CODING(R.string.profile_coding, "Make focused changes. Follow the repository's existing conventions and run targeted checks."),
+    DEBUGGING(R.string.profile_debugging, "Reproduce the failure, identify the cause from evidence, and verify the fix."),
+    ARCHITECT(R.string.profile_architect, "Trace the boundaries between components before changing their interfaces."),
+    RESEARCH(R.string.profile_research, "Gather evidence and point to concrete source locations in your conclusions."),
+    MINIMAL(R.string.profile_minimal, "Keep changes and explanations concise."),
+    CUSTOM(R.string.profile_custom, ""),
 }
 
 internal class AppPreferences(context: Context) {
@@ -63,10 +63,6 @@ internal class AppPreferences(context: Context) {
         get() = enumValue("mode", AgentMode.ASK)
         set(value) { setText("mode", value.name) }
 
-    var onboarding
-        get() = !prefs.getBoolean("onboarded", false)
-        set(value) { prefs.edit().putBoolean("onboarded", !value).apply() }
-
     var subagents
         get() = prefs.getInt("subagents", 2)
         set(value) { prefs.edit().putInt("subagents", value.coerceIn(0, 8)).apply() }
@@ -97,6 +93,10 @@ internal class AppPreferences(context: Context) {
     var prompt
         get() = prefs.getString("prompt", "").orEmpty()
         set(value) { setText("prompt", value.take(12_000)) }
+
+    var languageTag: String
+        get() = prefs.getString("language", "").orEmpty()
+        set(value) { setText("language", value) }
 
     var theme
         get() = enumValue("theme", dev.phoneagent.ui.AppTheme.SYSTEM)

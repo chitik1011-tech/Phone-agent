@@ -13,6 +13,34 @@ import org.junit.Test
 
 class AgentRunnerTest {
     @Test
+    fun chatWithoutAProjectKeepsHistoryAndBlocksUnexpectedTools() = runBlocking {
+        val history = listOf(AgentMessage("user", "Explain data classes"), AgentMessage("assistant", "They generate copy."))
+        val responses = listOf(
+            assistant(call("unexpected", "execute_command", "command" to "pwd")),
+            answer("The copy function creates a new instance."),
+        ).iterator()
+        val provider = object : AgentProvider {
+            override val model = "test-chat"
+            override suspend fun complete(
+                messages: List<AgentMessage>,
+                tools: List<JSONObject>,
+                onText: suspend (String) -> Unit,
+            ): ModelTurn {
+                assertTrue(tools.isEmpty())
+                assertEquals(history, messages.filter { it.role != "system" }.take(history.size))
+                return responses.next()
+            }
+        }
+
+        val result = AgentRunner(provider, null).run("How does copy work?", history = history, approve = {
+            error("Chat without a project must not request tool approval")
+        })
+
+        assertEquals("The copy function creates a new instance.", result.answer)
+        assertEquals("A project is needed to use this tool.", result.messages.first { it.toolCallId == "unexpected" }.content)
+    }
+
+    @Test
     fun carriesOutARealEditThenReportsActualResults() = runBlocking {
         val project = FakeProject()
         val provider = scripted(

@@ -26,29 +26,31 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.phoneagent.R
 
-private enum class SetupStep(val title: String, val description: String) {
-    WELCOME("Phone Agent", "Your AI-powered Android IDE."),
+private enum class SetupStep(val title: Int, val description: Int) {
+    WELCOME(R.string.about_app, R.string.setup_welcome),
     PROVIDER(
-        "Connect a model",
-        "Choose an endpoint and model for agent requests. You can continue setup and configure a provider later.",
+        R.string.setup_model,
+        R.string.setup_model_hint,
     ),
     TERMUX(
-        "Connect Termux",
-        "Grant command access in Android, then set allow-external-apps=true in Termux and test the connection.",
+        R.string.setup_termux,
+        R.string.setup_termux_hint,
     ),
     PERMISSION(
-        "Project access",
-        "Normal mode uses the Android folder picker to give the editor access to the project you choose.",
+        R.string.setup_access,
+        R.string.setup_access_hint,
     ),
     AGENTS(
-        "Agent preferences",
-        "Review available execution modes and configure how the agent can use project tools.",
+        R.string.agent_preferences,
+        R.string.setup_agents_hint,
     ),
     PROJECT(
-        "Open your first project",
-        "Select a project folder to inspect its source files and start a task.",
+        R.string.setup_project,
+        R.string.setup_project_hint,
     ),
 }
 
@@ -62,16 +64,17 @@ fun PhoneAgentOnboarding(
     onOpenPermissions: (() -> Unit)? = null,
     onOpenAgentPreferences: (() -> Unit)? = null,
 ) {
+    val labels = LocalContext.current
     var page by rememberSaveable { mutableIntStateOf(0) }
     val step = SetupStep.entries[page]
     val lastPage = SetupStep.entries.lastIndex
     val action = when (step) {
         SetupStep.WELCOME -> null
-        SetupStep.PROVIDER -> "Open model settings" to onOpenProviders
-        SetupStep.TERMUX -> "Open terminal setup" to onOpenTermux
-        SetupStep.PERMISSION -> onOpenPermissions?.let { "Open permissions" to it }
-        SetupStep.AGENTS -> onOpenAgentPreferences?.let { "Open agent settings" to it }
-        SetupStep.PROJECT -> "Choose folder" to onOpenProject
+        SetupStep.PROVIDER -> labels.getString(R.string.open_model_settings) to onOpenProviders
+        SetupStep.TERMUX -> labels.getString(R.string.open_terminal_setup) to onOpenTermux
+        SetupStep.PERMISSION -> onOpenPermissions?.let { labels.getString(R.string.open_permissions) to it }
+        SetupStep.AGENTS -> onOpenAgentPreferences?.let { labels.getString(R.string.open_agent_settings) to it }
+        SetupStep.PROJECT -> labels.getString(R.string.choose_folder) to onOpenProject
     }
     BackHandler(enabled = page > 0) { page-- }
     ScrollableScreen(
@@ -88,7 +91,7 @@ fun PhoneAgentOnboarding(
             transitionSpec = { fadeIn(tween(180, delayMillis = 60)) togetherWith fadeOut(tween(90)) },
             label = "setting up Phone Agent",
         ) { activeStep ->
-            ScreenTitle(activeStep.title, activeStep.description)
+            ScreenTitle(labels.getString(activeStep.title), labels.getString(activeStep.description))
         }
         if (action != null) {
             OutlinedButton(onClick = action.second) { Text(action.first) }
@@ -98,12 +101,12 @@ fun PhoneAgentOnboarding(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Button(onClick = { if (page == lastPage) onFinish() else page++ }) {
-                Text(if (page == lastPage) "Open IDE" else "Continue")
+                Text(if (page == lastPage) labels.getString(R.string.open_ide) else labels.getString(R.string.continue_setup))
             }
             if (page == 0) {
-                TextButton(onClick = onFinish) { Text("Skip setup") }
+                TextButton(onClick = onFinish) { Text(labels.getString(R.string.skip_setup)) }
             } else {
-                TextButton(onClick = { page-- }) { Text("Back") }
+                TextButton(onClick = { page-- }) { Text(labels.getString(R.string.back)) }
             }
         }
     }
