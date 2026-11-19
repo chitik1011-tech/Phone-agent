@@ -16,14 +16,14 @@ import org.junit.Test
 class BridgeClientTest {
     @Test
     fun authenticatedClientExchangesTerminalBytesWithPython() = runBlocking {
-        assumeTrue(System.getProperty("os.name").startsWith("Linux"))
+        assumeTrue(System.getProperty("os.name")?.startsWith("Linux") == true)
         val path = "src/main/assets/termux/phone_agent_bridge.py"
         val script = listOf(Path.of(path), Path.of("app", path)).first(Files::exists).toAbsolutePath()
         val home = Files.createTempDirectory("phone-agent-termux-test")
         val state = Files.createDirectories(home.resolve(".local/share/phone-agent-bridge")).resolve("socket.json")
         try {
             val server = ProcessBuilder("python3", script.toString(), "--serve")
-                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectOutput(home.resolve("bridge.stdout").toFile())
                 .redirectError(ProcessBuilder.Redirect.INHERIT)
                 .apply { environment()["HOME"] = home.toString() }
                 .start()
@@ -31,7 +31,7 @@ class BridgeClientTest {
                 withTimeout(5_000) {
                     while (!Files.exists(state) && server.isAlive) delay(25)
                 }
-                val info = JSONObject(Files.readString(state))
+                val info = JSONObject(state.toFile().readText())
                 val client = BridgeClient(info.getInt("port"), info.getString("key"))
                 assertTrue(client.isReachable())
                 assertEquals(emptyList<TerminalTab>(), client.list())

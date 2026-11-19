@@ -52,7 +52,9 @@ internal fun SettingsContent(
     val maxSubagents = remember(revision) { prefs.subagents }
     val maxSteps = remember(revision) { prefs.steps }
     val contextSize = remember(revision) { prefs.contextChars }
+    val promptProfile = remember(revision) { prefs.promptProfile }
     var prompt by remember { mutableStateOf(prefs.prompt) }
+    var reviewerModel by remember { mutableStateOf(prefs.reviewerModel) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),
@@ -84,6 +86,14 @@ internal fun SettingsContent(
                         value = maxSubagents.toFloat(), valueRange = 0f..8f, steps = 7,
                         onValueChange = { prefs.subagents = it.roundToInt(); onChanged() },
                     )
+                    OutlinedTextField(
+                        value = reviewerModel,
+                        onValueChange = { reviewerModel = it.take(200); prefs.reviewerModel = reviewerModel },
+                        label = { Text("Reviewer model ID") },
+                        supportingText = { Text("Blank uses the main model. Uses the same provider.") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     Text("Maximum model turns · $maxSteps")
                     Slider(
                         value = maxSteps.toFloat(), valueRange = 2f..40f, steps = 37,
@@ -99,6 +109,17 @@ internal fun SettingsContent(
                     )
                     Text("Automatic context compression")
                     Switch(checked = compact, onCheckedChange = { prefs.compact = it; onChanged() })
+                    Text("System prompt profile")
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PromptProfile.entries.forEach { entry ->
+                            FilterChip(
+                                selected = entry == promptProfile,
+                                onClick = { prefs.promptProfile = entry; onChanged() },
+                                label = { Text(entry.label) },
+                            )
+                        }
+                    }
+                    if (promptProfile.instruction.isNotBlank()) Text(promptProfile.instruction)
                     OutlinedTextField(
                         value = prompt,
                         onValueChange = { prompt = it.take(12_000); prefs.prompt = prompt },

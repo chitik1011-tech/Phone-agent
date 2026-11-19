@@ -1,21 +1,28 @@
 package dev.phoneagent.agent
 
-import com.sun.net.httpserver.HttpServer
+import java.io.Closeable
 import java.io.IOException
-import java.net.InetSocketAddress
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.SocketException
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okio.Buffer
+import okio.BufferedSink
+import okio.BufferedSource
+import okio.buffer
+import okio.sink
+import okio.source
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenAiProviderTest {
@@ -59,33 +66,25 @@ class OpenAiProviderTest {
     @Test
     fun requestsCatalogAndStreamsCompletionOverLoopbackHttp() = runBlocking {
         val received = AtomicReference<Pair<String?, JSONObject>>()
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.createContext("/v1/models") { exchange ->
-            val bytes = """{"data":[{"id":"test-model"}]}""".toByteArray()
-            exchange.responseHeaders.add("Content-Type", "application/json")
-            exchange.sendResponseHeaders(200, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
-        }
-        server.createContext("/v1/chat/completions") { exchange ->
-            val authorization = exchange.requestHeaders.getFirst("Authorization")
-            val request = JSONObject(exchange.requestBody.bufferedReader().use { it.readText() })
-            received.set(authorization to request)
-            val response = """
-                data: {"choices":[{"delta":{"content":"Verified"},"finish_reason":null}]}
+        LoopbackServer(requestCount = 2) { request, _, output ->
+            when (request.methodAndPath) {
+                "GET /v1/models" -> output.respond("application/json", """{"data":[{"id":"test-model"}]}""")
+                "POST /v1/chat/completions" -> {
+                    received.set(request.headers["authorization"] to JSONObject(request.body))
+                    val response = """
+                        data: {"choices":[{"delta":{"content":"Verified"},"finish_reason":null}]}
 
-                data: {"choices":[{"delta":{},"finish_reason":"stop"}]}
+                        data: {"choices":[{"delta":{},"finish_reason":"stop"}]}
 
-                data: [DONE]
+                        data: [DONE]
 
-            """.trimIndent() + "\n"
-            val payload = response.toByteArray()
-            exchange.responseHeaders.add("Content-Type", "text/event-stream")
-            exchange.sendResponseHeaders(200, payload.size.toLong())
-            exchange.responseBody.use { it.write(payload) }
-        }
-        server.start()
-        try {
-            val provider = OpenAiProvider(ProviderConfig("http://127.0.0.1:${server.address.port}/v1", "test-model", "test-key"))
+                    """.trimIndent() + "\n"
+                    output.respond("text/event-stream", response)
+                }
+                else -> error("Unexpected request: ${request.methodAndPath}")
+            }
+        }.use { server ->
+            val provider = OpenAiProvider(ProviderConfig(server.baseUrl, "test-model", "test-key"))
             assertEquals(listOf("test-model"), provider.models())
             val turn = provider.complete(listOf(AgentMessage("user", "Check transport")), emptyList()) {}
             assertEquals("Verified", turn.message.content)
@@ -93,33 +92,28 @@ class OpenAiProviderTest {
             assertEquals("Bearer test-key", authentication)
             assertEquals("test-model", body.getString("model"))
             assertEquals("Check transport", body.getJSONArray("messages").getJSONObject(0).getString("content"))
-        } finally {
-            server.stop(0)
         }
     }
 
     @Test
     fun cancellingAStreamClosesItsPendingNetworkRead() = runBlocking {
-        val release = CountDownLatch(1)
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.createContext("/v1/chat/completions") { exchange ->
-            exchange.requestBody.use { it.readBytes() }
-            exchange.responseHeaders.add("Content-Type", "text/event-stream")
-            exchange.sendResponseHeaders(200, 0)
-            try {
-                exchange.responseBody.write(
-                    "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n".toByteArray(),
-                )
-                exchange.responseBody.flush()
-                release.await(10, TimeUnit.SECONDS)
-            } finally {
-                exchange.close()
+        val disconnected = CompletableDeferred<Boolean>()
+        LoopbackServer(requestCount = 1) { request, input, output ->
+            check(request.methodAndPath == "POST /v1/chat/completions")
+            output.respond(
+                "text/event-stream",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
+                complete = false,
+            )
+            val connectionClosed = try {
+                input.exhausted()
+            } catch (_: SocketException) {
+                true
             }
-        }
-        server.start()
-        try {
+            disconnected.complete(connectionClosed)
+        }.use { server ->
             withTimeout(4_000) {
-                val provider = OpenAiProvider(ProviderConfig("http://127.0.0.1:${server.address.port}/v1", "test-model"))
+                val provider = OpenAiProvider(ProviderConfig(server.baseUrl, "test-model"))
                 val firstOutput = CompletableDeferred<String>()
                 val job = launch {
                     provider.complete(listOf(AgentMessage("user", "Check cancellation")), emptyList()) {
@@ -128,10 +122,8 @@ class OpenAiProviderTest {
                 }
                 assertEquals("partial", firstOutput.await())
                 job.cancelAndJoin()
+                assertTrue(disconnected.await())
             }
-        } finally {
-            release.countDown()
-            server.stop(0)
         }
     }
 
@@ -156,4 +148,62 @@ class OpenAiProviderTest {
         assertThrows(IllegalArgumentException::class.java) { validateEndpoint("https://example.org/v1?token=abc") }
         assertFalse(ProviderConfig("https://provider.test", "test", "secret").toString().contains("secret"))
     }
+}
+
+private data class FixtureRequest(
+    val methodAndPath: String,
+    val headers: Map<String, String>,
+    val body: String,
+)
+
+/** A real HTTP/1.1 loopback endpoint using only APIs available to Android unit-test compilation. */
+private class LoopbackServer(
+    requestCount: Int,
+    respond: (FixtureRequest, BufferedSource, BufferedSink) -> Unit,
+) : Closeable {
+    private val socket = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+    private val failure = AtomicReference<Throwable>()
+    val baseUrl = "http://127.0.0.1:${socket.localPort}/v1"
+    private val worker = thread(isDaemon = true, name = "provider-http-fixture") {
+        try {
+            repeat(requestCount) {
+                socket.accept().use { client ->
+                    client.soTimeout = 8_000
+                    val input = client.source().buffer()
+                    respond(input.readRequest(), input, client.sink().buffer())
+                }
+            }
+        } catch (error: Throwable) {
+            if (!socket.isClosed) failure.set(error)
+        }
+    }
+
+    override fun close() {
+        socket.close()
+        worker.join(1_000)
+        check(!worker.isAlive) { "Loopback HTTP fixture failed to finish." }
+        failure.get()?.let { throw AssertionError("Loopback HTTP fixture failed.", it) }
+    }
+}
+
+private fun BufferedSource.readRequest(): FixtureRequest {
+    val request = readUtf8LineStrict(8_192).substringBeforeLast(' ')
+    val headers = buildMap {
+        while (true) {
+            val line = readUtf8LineStrict(8_192)
+            if (line.isEmpty()) break
+            put(line.substringBefore(':').lowercase(), line.substringAfter(':').trim())
+        }
+    }
+    val length = headers["content-length"]?.toLong() ?: 0
+    check(length in 0..65_536) { "Unexpected HTTP request size." }
+    return FixtureRequest(request, headers, readUtf8(length))
+}
+
+private fun BufferedSink.respond(contentType: String, body: String, complete: Boolean = true) {
+    val bytes = body.encodeToByteArray()
+    writeUtf8("HTTP/1.1 200 OK\r\nContent-Type: $contentType\r\nConnection: close\r\n")
+    if (complete) writeUtf8("Content-Length: ${bytes.size}\r\n")
+    writeUtf8("\r\n").write(bytes)
+    flush()
 }

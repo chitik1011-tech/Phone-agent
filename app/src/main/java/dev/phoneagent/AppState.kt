@@ -11,6 +11,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
+internal enum class PromptProfile(val label: String, val instruction: String) {
+    DEFAULT("Default", ""),
+    CODING("Coding", "Make focused changes. Follow the repository's existing conventions and run targeted checks."),
+    DEBUGGING("Debugging", "Reproduce the failure, identify the cause from evidence, and verify the fix."),
+    ARCHITECT("Architect", "Trace the boundaries between components before changing their interfaces."),
+    RESEARCH("Research", "Gather evidence and point to concrete source locations in your conclusions."),
+    MINIMAL("Minimal", "Keep changes and explanations concise."),
+    CUSTOM("Custom", ""),
+}
+
 internal class AppPreferences(context: Context) {
     private val prefs = context.getSharedPreferences("phone_agent", Context.MODE_PRIVATE)
 
@@ -72,6 +82,17 @@ internal class AppPreferences(context: Context) {
     var contextChars
         get() = prefs.getInt("context_chars", 48_000)
         set(value) { prefs.edit().putInt("context_chars", value.coerceIn(16_000, 100_000)).apply() }
+
+    var promptProfile
+        get() = enumValue("prompt_profile", PromptProfile.DEFAULT)
+        set(value) { setText("prompt_profile", value.name) }
+
+    var reviewerModel
+        get() = prefs.getString("reviewer_model", "").orEmpty()
+        set(value) { setText("reviewer_model", value.trim().take(200)) }
+
+    val systemPrompt: String
+        get() = listOf(promptProfile.instruction, prompt).filter(String::isNotBlank).joinToString("\n\n")
 
     var prompt
         get() = prefs.getString("prompt", "").orEmpty()

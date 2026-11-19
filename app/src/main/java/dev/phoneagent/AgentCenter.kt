@@ -81,26 +81,27 @@ internal fun AgentCenter(
         val instruction = task.trim()
         val options = AgentOptions(
             mode = prefs.mode,
-            systemPrompt = prefs.prompt,
+            systemPrompt = prefs.systemPrompt,
             maxSteps = prefs.steps,
             maxSubagents = prefs.subagents,
             contextChars = prefs.contextChars,
             autoCompact = prefs.compact,
         )
+        val reviewerModel = prefs.reviewerModel
         busy = true
         error = ""
         scope.launch {
             try {
-                val provider = withContext(Dispatchers.IO) {
+                val providerConfig = withContext(Dispatchers.IO) {
                     val config = providers.load()
                     config.validate()
-                    OpenAiProvider(
-                        ProviderConfig(
-                            config.baseUrl, config.model, config.apiKey, config.timeoutSeconds,
-                            config.maxOutputTokens,
-                        ),
+                    ProviderConfig(
+                        config.baseUrl, config.model, config.apiKey, config.timeoutSeconds, config.maxOutputTokens,
                     )
                 }
+                val provider = OpenAiProvider(providerConfig)
+                val reviewer = reviewerModel.takeIf { it.isNotBlank() && it != provider.model }
+                    ?.let { OpenAiProvider(providerConfig.copy(model = it)) }
                 val messages = resume?.let {
                     require(it.spec.project == project.ref.location) { "Open the session's original project first." }
                     val raw = sessions.checkpoint(it.id) ?: error("This session has no saved context.")
@@ -108,7 +109,7 @@ internal fun AgentCenter(
                     List(saved.length()) { index -> AgentMessage.fromJson(saved.getJSONObject(index)) }
                 }.orEmpty()
                 sessions.start(SessionSpec(instruction, project.ref.location, provider.model, options.mode.name)) {
-                    runCodingAgent(project, provider, instruction, options, messages)
+                    runCodingAgent(project, provider, reviewer, instruction, options, messages)
                 }
                 task = ""
                 selected = null
@@ -203,6 +204,7 @@ internal fun AgentCenter(
 private suspend fun SessionRun.runCodingAgent(
     project: Workspace,
     provider: OpenAiProvider,
+    reviewer: OpenAiProvider?,
     instruction: String,
     options: AgentOptions,
     messages: List<AgentMessage>,
@@ -217,7 +219,7 @@ private suspend fun SessionRun.runCodingAgent(
         lastFlush = System.nanoTime()
     }
 
-    val result = AgentRunner(provider, project).run(
+    val result = AgentRunner(provider, project, reviewer ?: provider).run(
         task = instruction,
         options = options,
         history = messages,

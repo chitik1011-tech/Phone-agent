@@ -21,6 +21,7 @@ internal class McpException(
     message: String,
     val httpStatus: Int? = null,
     val rpcCode: Int? = null,
+    val advertisedVersions: Set<String> = emptySet(),
 ) : IOException(message)
 
 internal data class McpCatalog(
@@ -48,11 +49,12 @@ internal class McpClient(server: McpServer, http: OkHttpClient = OkHttpClient())
         return try {
             listTools(Connection(MODERN_VERSION))
         } catch (failure: McpException) {
-            if (failure.httpStatus !in setOf(400, 404, 405) ||
-                failure.rpcCode in setOf(-32_020, -32_601)
-            ) {
-                throw failure
+            val canNegotiateLegacy = when (failure.rpcCode) {
+                UNSUPPORTED_VERSION -> failure.advertisedVersions.any { it in SUPPORTED_LEGACY }
+                -32_020, -32_021, -32_601 -> false
+                else -> failure.httpStatus in setOf(400, 404, 405)
             }
+            if (!canNegotiateLegacy) throw failure
             withLegacySession(::listTools)
         }
     }
@@ -244,15 +246,23 @@ internal class McpClient(server: McpServer, http: OkHttpClient = OkHttpClient())
             in 300..399 -> "The MCP server returned a redirect. Enter the final endpoint URL."
             else -> "The MCP server rejected the request."
         }
-        val code = if (status in setOf(400, 404, 405)) {
+        val error = if (status in setOf(400, 404, 405)) {
             runCatching {
                 val source = response.body?.source() ?: return@runCatching null
-                (readJson(source).optJSONObject("error")?.opt("code") as? Number)?.toInt()
+                readJson(source).optJSONObject("error")
             }.getOrNull()
         } else {
             null
         }
-        return McpException("$diagnostic HTTP $status.", status, code)
+        val code = (error?.opt("code") as? Number)?.toInt()
+        val advertised = error?.optJSONObject("data")?.optJSONArray("supported")
+        val versions = buildSet {
+            if (advertised != null) {
+                for (index in 0 until advertised.length().coerceAtMost(20)) add(advertised.optString(index))
+            }
+        }
+        val message = if (code == UNSUPPORTED_VERSION) "The MCP server did not accept this protocol revision." else diagnostic
+        return McpException("$message HTTP $status.", status, code, versions)
     }
 
     private data class Connection(val version: String, val sessionId: String? = null)
@@ -263,6 +273,7 @@ internal class McpClient(server: McpServer, http: OkHttpClient = OkHttpClient())
         const val LEGACY_VERSION = "2025-11-25"
         const val MAX_TOOLS = 500
         const val MAX_PAGES = 8
+        const val UNSUPPORTED_VERSION = -32_022
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
         val SUPPORTED_LEGACY = setOf(LEGACY_VERSION, "2025-06-18", "2025-03-26")
 
