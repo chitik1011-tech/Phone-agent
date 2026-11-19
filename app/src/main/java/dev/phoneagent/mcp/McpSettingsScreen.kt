@@ -36,6 +36,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import dev.phoneagent.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -44,6 +45,7 @@ import org.json.JSONObject
 
 @Composable
 fun McpSettingsScreen(modifier: Modifier = Modifier) {
+    val labels = LocalContext.current
     val context = LocalContext.current.applicationContext
     val store = remember(context) { McpStore(context) }
     val scope = rememberCoroutineScope()
@@ -127,12 +129,12 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
                 if (saved.isNotEmpty()) TextButton(enabled = !busy, onClick = {
                     reveal = false
                     update(McpServer())
-                }) { Text("Add server") }
+                }) { Text(labels.getString(R.string.mcp_add)) }
                 OutlinedTextField(
                     value = draft.name,
                     onValueChange = { update(draft.copy(name = it.take(80))) },
                     enabled = !busy,
-                    label = { Text("Name") },
+                    label = { Text(labels.getString(R.string.mcp_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -140,8 +142,8 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
                     value = draft.url,
                     onValueChange = { update(draft.copy(url = it.take(2048), token = "")) },
                     enabled = !busy,
-                    label = { Text("Streamable HTTP endpoint") },
-                    supportingText = { Text("Enter the full endpoint URL. Remote servers require HTTPS.") },
+                    label = { Text(labels.getString(R.string.mcp_url)) },
+                    supportingText = { Text(labels.getString(R.string.mcp_url_hint)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -150,10 +152,10 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
                     value = draft.token,
                     onValueChange = { update(draft.copy(token = it.take(4096))) },
                     enabled = !busy,
-                    label = { Text("Bearer token") },
+                    label = { Text(labels.getString(R.string.mcp_bearer)) },
                     trailingIcon = {
                         TextButton(enabled = !busy, onClick = { reveal = !reveal }) {
-                            Text(if (reveal) "Hide" else "Show")
+                            Text(if (reveal) labels.getString(R.string.hide) else labels.getString(R.string.show))
                         }
                     },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -167,7 +169,7 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
                         enabled = !busy,
                         onCheckedChange = { update(draft.copy(enabled = it)) },
                     )
-                    Text("Enabled")
+                    Text(labels.getString(R.string.mcp_enabled))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
@@ -181,9 +183,9 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
                                 status = "MCP server saved."
                             }
                         },
-                    ) { Text("Save server") }
+                    ) { Text(labels.getString(R.string.mcp_save)) }
                     if (saved.any { it.id == draft.id }) {
-                        TextButton(enabled = !busy, onClick = { removing = true }) { Text("Remove") }
+                        TextButton(enabled = !busy, onClick = { removing = true }) { Text(labels.getString(R.string.remove)) }
                     }
                 }
                 OutlinedButton(
@@ -201,9 +203,9 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
                             if (catalog.unavailableTools > 0) status += " · ${catalog.unavailableTools} invalid entries"
                         }
                     },
-                ) { Text("Discover tools") }
+                ) { Text(labels.getString(R.string.mcp_discover)) }
                 if (status.isNotEmpty()) Text(status, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (output.isNotEmpty()) TextButton(onClick = { showOutput = true }) { Text("View result") }
+                if (output.isNotEmpty()) TextButton(onClick = { showOutput = true }) { Text(labels.getString(R.string.mcp_view_result)) }
             }
         }
 
@@ -214,7 +216,7 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
                 Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(title, style = MaterialTheme.typography.titleMedium)
                     if (description.isNotEmpty()) Text(description, style = MaterialTheme.typography.bodySmall)
-                    TextButton(enabled = !busy, onClick = { editingTool = tool }) { Text("Prepare call") }
+                    TextButton(enabled = !busy, onClick = { editingTool = tool }) { Text(labels.getString(R.string.mcp_prepare)) }
                 }
             }
         }
@@ -239,13 +241,13 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
         val server = request.connection.server
         AlertDialog(
             onDismissRequest = { pending = null },
-            title = { Text("Run ${server.redact(request.tool.name)}?") },
+            title = { Text(labels.getString(R.string.mcp_run, server.redact(request.tool.name))) },
             text = {
                 Column(
                     modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("This sends these arguments to ${server.name} at ${server.endpoint().host}. The tool can change external data.")
+                    Text(labels.getString(R.string.mcp_call_warning, server.name, server.endpoint().host))
                     Text(server.redact(request.arguments.toString(2)), fontFamily = FontFamily.Monospace)
                 }
             },
@@ -265,16 +267,16 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
                         showOutput = true
                         status = if (result.optBoolean("isError")) "The tool reported an error." else "The tool returned a result."
                     }
-                }) { Text("Run once") }
+                }) { Text(labels.getString(R.string.mcp_run_once)) }
             },
-            dismissButton = { TextButton(onClick = { pending = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { pending = null }) { Text(labels.getString(R.string.cancel)) } },
         )
     }
 
     if (showOutput && output.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { showOutput = false },
-            title = { Text("Tool result") },
+            title = { Text(labels.getString(R.string.mcp_result)) },
             text = {
                 Text(
                     output,
@@ -283,7 +285,7 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
                     style = MaterialTheme.typography.bodySmall,
                 )
             },
-            confirmButton = { TextButton(onClick = { showOutput = false }) { Text("Close") } },
+            confirmButton = { TextButton(onClick = { showOutput = false }) { Text(labels.getString(R.string.close)) } },
         )
     }
 
@@ -291,8 +293,8 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
         val server = draft
         AlertDialog(
             onDismissRequest = { removing = false },
-            title = { Text("Remove this MCP server?") },
-            text = { Text("This deletes its saved endpoint and bearer token from Phone Agent.") },
+            title = { Text(labels.getString(R.string.mcp_confirm_remove)) },
+            text = { Text(labels.getString(R.string.mcp_remove_hint)) },
             confirmButton = {
                 Button(onClick = {
                     removing = false
@@ -301,9 +303,9 @@ fun McpSettingsScreen(modifier: Modifier = Modifier) {
                         reveal = false
                         update(saved.firstOrNull() ?: McpServer())
                     }
-                }) { Text("Remove server") }
+                }) { Text(labels.getString(R.string.mcp_remove)) }
             },
-            dismissButton = { TextButton(onClick = { removing = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { removing = false }) { Text(labels.getString(R.string.cancel)) } },
         )
     }
 }
@@ -315,6 +317,7 @@ private fun ToolArgumentsDialog(
     close: () -> Unit,
     prepare: (JSONObject) -> Unit,
 ) {
+    val labels = LocalContext.current
     var arguments by remember(tool) { mutableStateOf("{}") }
     var error by remember(tool) { mutableStateOf("") }
     AlertDialog(
@@ -325,7 +328,7 @@ private fun ToolArgumentsDialog(
                 modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Input schema")
+                Text(labels.getString(R.string.mcp_schema))
                 Text(
                     server.redact(tool.schema.toString(2)).take(6000),
                     fontFamily = FontFamily.Monospace,
@@ -337,7 +340,7 @@ private fun ToolArgumentsDialog(
                         arguments = it.take(24 * 1024)
                         error = ""
                     },
-                    label = { Text("JSON arguments") },
+                    label = { Text(labels.getString(R.string.mcp_json_args)) },
                     minLines = 3,
                     maxLines = 8,
                     modifier = Modifier.fillMaxWidth(),
@@ -352,9 +355,9 @@ private fun ToolArgumentsDialog(
                 } catch (failure: McpException) {
                     error = failure.message ?: "Check the tool arguments."
                 }
-            }) { Text("Review call") }
+            }) { Text(labels.getString(R.string.mcp_review_call)) }
         },
-        dismissButton = { TextButton(onClick = close) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = close) { Text(labels.getString(R.string.cancel)) } },
     )
 }
 

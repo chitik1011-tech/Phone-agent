@@ -29,7 +29,7 @@ private const val MAX_TOOL_RESULT = 24_000
 
 class AgentRunner(
     private val provider: AgentProvider,
-    private val project: ProjectTools,
+    private val project: ProjectTools?,
     private val reviewProvider: AgentProvider = provider,
 ) {
     suspend fun run(
@@ -44,7 +44,7 @@ class AgentRunner(
         require(options.systemPrompt.length <= 16_000) { "The custom prompt exceeds the 16,000-character limit." }
 
         val eventLock = Mutex()
-        val delegateBudget = options.maxSubagents.coerceIn(0, 8)
+        val delegateBudget = if (project == null) 0 else options.maxSubagents.coerceIn(0, 8)
         val historyMessages = validGroups(history).flatten()
         val seenIds = historyMessages.flatMap(AgentMessage::toolCalls).map(ToolCall::id).toMutableSet()
         val messages = (historyMessages + AgentMessage("user", task)).toMutableList()
@@ -55,8 +55,9 @@ class AgentRunner(
 
         repeat(options.maxSteps.coerceIn(1, 40)) {
             currentCoroutineContext().ensureActive()
-            val tools = availableTools(options.mode, delegatesRemaining > 0)
-            val context = prepareContext(messages, options, mainInstructions(options.mode))
+            val tools = if (project == null) emptyList() else availableTools(options.mode, delegatesRemaining > 0)
+            val system = if (project == null) CHAT_INSTRUCTIONS else mainInstructions(options.mode)
+            val context = prepareContext(messages, options, system)
             if (context.summary != null && context.summary != lastSummary) {
                 lastSummary = context.summary
                 emit(AgentEvent.Compacted(context.summary))
@@ -180,6 +181,7 @@ class AgentRunner(
         mode: AgentMode,
         approve: suspend (ToolCall) -> Boolean,
     ): String {
+        val project = project ?: return "A project is needed to use this tool."
         val args = JSONObject(call.arguments)
         return when (call.name) {
             LIST -> project.list(safePath(args.optString("path", "."), allowRoot = true))
@@ -272,9 +274,13 @@ private fun obscuresCommand(character: Char): Boolean =
     (character.isISOControl() && character != '\n' && character != '\t') ||
         Character.getType(character) == Character.FORMAT.toInt()
 
+private const val CHAT_INSTRUCTIONS =
+    "You are Phone Agent, an Android coding assistant. The user has no project attached. " +
+        "Answer in the user's language without claiming to inspect files or execute commands."
+
 private fun mainInstructions(mode: AgentMode): String = """
     You are PHONE AGENT, an Android coding assistant working on the user's selected local project.
-    Use tools to verify files, edits, builds, and tests. Report what you ran and the observed result.
+    Respond in the user's language. Use tools to verify files, edits, builds, and tests. Report what you ran and the observed result.
     Current permissions mode: $mode. Never request root or elevated privileges. Shell runs only when the
     user confirms the exact command. Request shell only for legitimate development in the selected project.
     A read-only review has its own context and cannot edit files or run commands.

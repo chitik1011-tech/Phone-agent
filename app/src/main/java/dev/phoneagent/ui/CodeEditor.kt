@@ -32,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.phoneagent.R
 
 @Composable
 fun CodeEditor(
@@ -54,6 +56,7 @@ fun CodeEditor(
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,
 ) {
+    val labels = LocalContext.current
     val colors = MaterialTheme.colorScheme
     val scroll = rememberScrollState()
     val lineStarts = remember(value) { sourceLineStarts(value) }
@@ -125,7 +128,7 @@ fun CodeEditor(
                         matchIndex = 0
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    label = { Text("Find in file") },
+                    label = { Text(labels.getString(R.string.find_file)) },
                     singleLine = true,
                 )
                 Row(
@@ -146,21 +149,21 @@ fun CodeEditor(
                     TextButton(
                         onClick = { matchIndex = (currentMatch + matches.size - 1) % matches.size },
                         enabled = matches.isNotEmpty(),
-                    ) { Text("Prev") }
+                    ) { Text(labels.getString(R.string.previous)) }
                     TextButton(
                         onClick = { matchIndex = (currentMatch + 1) % matches.size },
                         enabled = matches.isNotEmpty(),
-                    ) { Text("Next") }
+                    ) { Text(labels.getString(R.string.next)) }
                     TextButton(onClick = {
                         findOpen = false
                         query = ""
-                    }) { Text("Close") }
+                    }) { Text(labels.getString(R.string.close)) }
                 }
             } else {
                 TextButton(
                     onClick = { findOpen = true },
                     modifier = Modifier.align(Alignment.End).padding(end = 6.dp),
-                ) { Text("Find") }
+                ) { Text(labels.getString(R.string.find)) }
             }
             Box(
                 Modifier.fillMaxWidth().heightIn(min = 144.dp, max = 560.dp)

@@ -38,6 +38,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import dev.phoneagent.R
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -45,10 +47,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import java.io.IOException
 
 @Composable
 fun TerminalScreen(runtime: TermuxRuntime, defaultWorkDir: String = "") {
+    val labels = LocalContext.current
     val scope = rememberCoroutineScope()
     var installed by remember(runtime) { mutableStateOf(runtime.status()) }
     var directory by rememberSaveable(defaultWorkDir) { mutableStateOf(defaultWorkDir) }
@@ -92,7 +94,7 @@ fun TerminalScreen(runtime: TermuxRuntime, defaultWorkDir: String = "") {
                 try {
                     updateSessions(existing, existing.list())
                 } catch (failure: IOException) {
-                    message = failure.message ?: "Termux connection was lost."
+                    message = failure.message ?: labels.getString(R.string.termux_lost)
                 }
             }
         }
@@ -109,16 +111,14 @@ fun TerminalScreen(runtime: TermuxRuntime, defaultWorkDir: String = "") {
                 Text("Termux", style = MaterialTheme.typography.headlineMedium)
                 Text(
                     when {
-                        !installed.installed -> "Termux is not installed."
-                        !installed.supportsPrivateCommandResults -> "Update Termux to 0.118 or later for private command results."
-                        else -> "Installed • ${installed.versionName.orEmpty()}"
+                        !installed.installed -> labels.getString(R.string.termux_missing)
+                        !installed.supportsPrivateCommandResults -> labels.getString(R.string.termux_update)
+                        else -> labels.getString(R.string.termux_installed, installed.versionName ?: labels.getString(R.string.termux_version_unknown))
                     },
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    "Open Termux once. Set allow-external-apps=true in ~/.termux/termux.properties, run " +
-                        "termux-reload-settings, and install Python with pkg install python. " +
-                        "Connecting installs the bridge in Termux home.",
+                    labels.getString(R.string.termux_bridge_setup),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Row(
@@ -126,12 +126,12 @@ fun TerminalScreen(runtime: TermuxRuntime, defaultWorkDir: String = "") {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     TextButton(onClick = {
-                        if (!runtime.launchTermux()) message = "Install Termux to continue."
-                    }) { Text("Open Termux") }
-                    TextButton(onClick = { installed = runtime.status() }) { Text("Refresh") }
+                        if (!runtime.launchTermux()) message = labels.getString(R.string.termux_install_to_continue)
+                    }) { Text(labels.getString(R.string.open_termux)) }
+                    TextButton(onClick = { installed = runtime.status() }) { Text(labels.getString(R.string.refresh)) }
                     if (installed.supportsPrivateCommandResults && !installed.permissionGranted) {
                         TextButton(onClick = { permission.launch(TermuxRuntime.PERMISSION) }) {
-                            Text("Grant permission")
+                            Text(labels.getString(R.string.grant_permission))
                         }
                     }
                 }
@@ -145,21 +145,21 @@ fun TerminalScreen(runtime: TermuxRuntime, defaultWorkDir: String = "") {
                                 val newBridge = runtime.connectBridge()
                                 updateSessions(newBridge, newBridge.list())
                             }
-                        }) { Text(if (busy) "Connecting…" else "Connect") }
+                        }) { Text(if (busy) labels.getString(R.string.connecting) else labels.getString(R.string.connect)) }
                         TextButton(enabled = !busy, onClick = {
                             perform {
                                 val probe = runtime.probe()
                                 message = probe.error ?: if (probe.exitCode == 0) {
                                     if (probe.stdout.lines().any { it.endsWith("/python3") }) {
-                                        "RUN_COMMAND works and Python is available."
+                                        labels.getString(R.string.termux_probe_python)
                                     } else {
-                                        "RUN_COMMAND works. Install Python in Termux to connect."
+                                        labels.getString(R.string.termux_probe_need_python)
                                     }
                                 } else {
-                                    probe.stderr.ifBlank { "Termux probe exited with ${probe.exitCode}." }
+                                    probe.stderr.ifBlank { labels.getString(R.string.termux_probe_exit, probe.exitCode) }
                                 }
                             }
-                        }) { Text("Test connection") }
+                        }) { Text(labels.getString(R.string.test_connection)) }
                     }
                 }
             }
@@ -177,7 +177,7 @@ fun TerminalScreen(runtime: TermuxRuntime, defaultWorkDir: String = "") {
                             label = { Text(tab.directory.substringAfterLast('/').ifEmpty { "/" }) },
                         )
                     }
-                    TextButton(enabled = !busy, onClick = { selected = null }) { Text("New tab") }
+                    TextButton(enabled = !busy, onClick = { selected = null }) { Text(labels.getString(R.string.new_tab)) }
                     TextButton(enabled = !busy, onClick = {
                         perform {
                             connection.close(active.id)
@@ -185,19 +185,19 @@ fun TerminalScreen(runtime: TermuxRuntime, defaultWorkDir: String = "") {
                             selected = null
                             updateSessions(connection, updated)
                         }
-                    }) { Text("Close tab") }
+                    }) { Text(labels.getString(R.string.close_tab)) }
                 }
             } else {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (tabs.isNotEmpty()) {
-                        TextButton(onClick = { selected = tabs.first().id }) { Text("Back to terminal") }
+                        TextButton(onClick = { selected = tabs.first().id }) { Text(labels.getString(R.string.back_terminal)) }
                     }
                     OutlinedTextField(
                         value = directory,
                         onValueChange = { directory = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Termux directory") },
-                        supportingText = { Text("Leave blank to open Termux home.") },
+                        label = { Text(labels.getString(R.string.termux_directory)) },
+                        supportingText = { Text(labels.getString(R.string.termux_home_hint)) },
                         singleLine = true,
                     )
                     Button(enabled = !busy, onClick = {
@@ -206,7 +206,7 @@ fun TerminalScreen(runtime: TermuxRuntime, defaultWorkDir: String = "") {
                             updateSessions(connection, connection.list())
                             selected = new.id
                         }
-                    }) { Text("Open terminal") }
+                    }) { Text(labels.getString(R.string.open_terminal)) }
                 }
             }
             if (active != null) {
@@ -233,7 +233,7 @@ fun TerminalScreen(runtime: TermuxRuntime, defaultWorkDir: String = "") {
                         val newBridge = runtime.connectBridge()
                         updateSessions(newBridge, newBridge.list())
                     }
-                }) { Text("Reconnect") }
+                }) { Text(labels.getString(R.string.reconnect)) }
             }
         }
     }
@@ -246,6 +246,7 @@ private fun TerminalPane(
     onMessage: (String) -> Unit,
     modifier: Modifier,
 ) {
+    val labels = LocalContext.current
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val clipboard = remember(context) { context.getSystemService(ClipboardManager::class.java) }
@@ -306,7 +307,7 @@ private fun TerminalPane(
                         } catch (failure: IOException) {
                             ended = (failure as? BridgeFailure)?.missing == true
                             if (ended || ++retries > 3) {
-                                onMessage(failure.message ?: "Termux connection was lost.")
+                                onMessage(failure.message ?: labels.getString(R.string.termux_lost))
                                 break
                             }
                             delay(400L * retries)
@@ -350,12 +351,12 @@ private fun TerminalPane(
                     value = query,
                     onValueChange = { query = it },
                     singleLine = true,
-                    label = { Text("Find in terminal") },
+                    label = { Text(labels.getString(R.string.find_terminal)) },
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = {
                     terminal?.search(query) { if (!it) onMessage("No matching terminal output.") }
-                }) { Text("Next") }
+                }) { Text(labels.getString(R.string.next)) }
             }
         }
         Row(
@@ -369,12 +370,12 @@ private fun TerminalPane(
             }
             TextButton(onClick = {
                 terminal?.copy { text -> clipboard?.setPrimaryClip(ClipData.newPlainText("Terminal selection", text)) }
-            }) { Text("Copy") }
+            }) { Text(labels.getString(R.string.copy)) }
             TextButton(onClick = {
                 val item = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
                 item?.text?.let { terminal?.paste(it.toString()) }
-            }) { Text("Paste") }
-            TextButton(onClick = { searching = !searching }) { Text("Find") }
+            }) { Text(labels.getString(R.string.paste)) }
+            TextButton(onClick = { searching = !searching }) { Text(labels.getString(R.string.find)) }
             TextButton(onClick = { fontSize = (fontSize - 1).coerceAtLeast(10) }) { Text("A−") }
             TextButton(onClick = { fontSize = (fontSize + 1).coerceAtMost(26) }) { Text("A+") }
         }

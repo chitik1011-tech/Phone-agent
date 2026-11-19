@@ -2,7 +2,11 @@ package dev.phoneagent
 
 import android.Manifest
 import android.content.Intent
+import android.app.LocaleManager
+import android.content.Context
+import android.content.res.Configuration
 import android.os.Build
+import android.os.LocaleList
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -58,30 +62,43 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        val tag = AppPreferences(newBase).languageTag
+        val localized = if (Build.VERSION.SDK_INT < 33 && tag.isNotEmpty()) {
+            val configuration = Configuration(newBase.resources.configuration)
+            configuration.setLocales(LocaleList(Locale.forLanguageTag(tag)))
+            newBase.createConfigurationContext(configuration)
+        } else newBase
+        super.attachBaseContext(localized)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { PhoneAgentApp() }
+        setContent { PhoneAgentApp(this) }
     }
 }
 
 private enum class SettingsPage { MAIN, PROVIDERS, AGENTS, PERMISSIONS, MCP }
 
 @Composable
-private fun PhoneAgentApp() {
-    val context = LocalContext.current.applicationContext
+private fun PhoneAgentApp(activity: ComponentActivity) {
+    val labels = LocalContext.current
+    val context = activity.applicationContext
     val preferences = remember { AppPreferences(context) }
     val providers = remember { ProviderStore(context) }
     val runtime = remember { TermuxRuntime(context) }
     val sessions = remember { AgentSessions.get(context) }
     val scope = rememberCoroutineScope()
     val snack = remember { SnackbarHostState() }
-    var screen by rememberSaveable { mutableStateOf(Destination.HOME) }
+    var screen by rememberSaveable { mutableStateOf(Destination.AGENTS) }
     var settingsPage by rememberSaveable { mutableStateOf(SettingsPage.MAIN) }
-    var onboarding by rememberSaveable { mutableStateOf(preferences.onboarding) }
-    var setupInProgress by rememberSaveable { mutableStateOf(preferences.onboarding) }
+    var providerSetupFromChat by rememberSaveable { mutableStateOf(false) }
+    var onboarding by rememberSaveable { mutableStateOf(false) }
+    var setupInProgress by rememberSaveable { mutableStateOf(false) }
     val onboardingState = rememberSaveableStateHolder()
     var showProjects by rememberSaveable { mutableStateOf(false) }
     var showTermuxPath by rememberSaveable { mutableStateOf(false) }
@@ -94,9 +111,9 @@ private fun PhoneAgentApp() {
     val selectedProject = remember(project) { project?.let { workspace(context, runtime, it) } }
     val session by sessions.current.collectAsStateWithLifecycle()
     val approval by ApprovalGate.pending.collectAsStateWithLifecycle()
-    val providerLabel = androidx.compose.runtime.produceState("Not configured", providerRevision) {
+    val providerLabel = androidx.compose.runtime.produceState(labels.getString(R.string.not_configured), providerRevision) {
         value = withContext(Dispatchers.IO) {
-            runCatching { providers.load().model.ifBlank { "Not configured" } }.getOrDefault("Check settings")
+            runCatching { providers.load().model.ifBlank { labels.getString(R.string.not_configured) } }.getOrDefault(labels.getString(R.string.check_settings))
         }
     }.value
 
@@ -105,22 +122,31 @@ private fun PhoneAgentApp() {
     fun finishOnboarding() {
         onboarding = false
         setupInProgress = false
-        preferences.onboarding = false
     }
 
-    fun openSettings(page: SettingsPage) {
+    fun openSettings(page: SettingsPage, fromChat: Boolean = false) {
         onboarding = false
+        providerSetupFromChat = fromChat
         settingsPage = page
         screen = Destination.SETTINGS
     }
 
+    fun backFromProviders() {
+        if (providerSetupFromChat) {
+            providerSetupFromChat = false
+            screen = Destination.AGENTS
+        }
+        settingsPage = SettingsPage.MAIN
+    }
+
     fun openProject(ref: WorkspaceRef) {
+        val next = if (!onboarding && screen == Destination.AGENTS) Destination.AGENTS else Destination.WORKSPACE
         preferences.rememberWorkspace(ref)
         project = ref
         showProjects = false
         showTermuxPath = false
         finishOnboarding()
-        screen = Destination.WORKSPACE
+        screen = next
     }
 
     val openFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -130,12 +156,12 @@ private fun PhoneAgentApp() {
                     uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
                 )
                 openProject(documentWorkspace(uri))
-            }.onFailure { message(it.message ?: "Could not open the folder.") }
+            }.onFailure { message(it.message ?: labels.getString(R.string.could_not_open_folder)) }
         }
     }
 
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        message(if (granted) "Notifications enabled." else "Notification permission was declined.")
+        message(if (granted) labels.getString(R.string.notifications_enabled) else labels.getString(R.string.notifications_declined))
     }
 
     fun openTermux() {
@@ -145,17 +171,18 @@ private fun PhoneAgentApp() {
 
     fun launchCodex() {
         runCatching { runtime.launchInteractiveCommand("codex login --device-auth") }
-            .onFailure { message(it.message ?: "Could not open Codex in Termux.") }
+            .onFailure { message(it.message ?: labels.getString(R.string.no_codex_open)) }
     }
 
     val selection = remember(prefsRevision) { preferences.theme }
     val animations = remember(prefsRevision) { preferences.animations }
     val haptics = remember(prefsRevision) { preferences.haptics }
-    BackHandler(!onboarding && (setupInProgress || screen != Destination.HOME)) {
+    BackHandler(!onboarding && (setupInProgress || screen != Destination.AGENTS)) {
         if (setupInProgress) onboarding = true
+        else if (screen == Destination.SETTINGS && settingsPage == SettingsPage.PROVIDERS) backFromProviders()
         else if (screen == Destination.SETTINGS && settingsPage != SettingsPage.MAIN) {
             settingsPage = SettingsPage.MAIN
-        } else screen = Destination.HOME
+        } else screen = Destination.AGENTS
     }
 
     PhoneAgentTheme(selection) {
@@ -174,7 +201,10 @@ private fun PhoneAgentApp() {
             PhoneAgentShell(
                 destination = screen,
                 onNavigate = {
-                    if (it == Destination.SETTINGS && screen != it) settingsPage = SettingsPage.MAIN
+                    if (it == Destination.SETTINGS && screen != it) {
+                        settingsPage = SettingsPage.MAIN
+                        providerSetupFromChat = false
+                    }
                     screen = it
                 },
                 animateNavigation = animations,
@@ -185,9 +215,9 @@ private fun PhoneAgentApp() {
                         projectName = project?.title,
                         termuxStatus = runtime.status().let {
                             when {
-                                !it.installed -> "Install Termux"
-                                !it.permissionGranted -> "Permission required"
-                                else -> "Installed · ${it.versionName ?: "version unknown"}"
+                                !it.installed -> labels.getString(R.string.install_termux)
+                                !it.permissionGranted -> labels.getString(R.string.permission_required)
+                                else -> labels.getString(R.string.termux_installed, it.versionName ?: labels.getString(R.string.termux_version_unknown))
                             }
                         },
                         providerStatus = providerLabel,
@@ -199,7 +229,7 @@ private fun PhoneAgentApp() {
                         onNewTask = { screen = Destination.AGENTS },
                         onStartOnboarding = { setupInProgress = true; onboarding = true },
                         recentTaskTitle = session?.spec?.task,
-                        recentTaskStatus = session?.statusMessage,
+                        recentTaskStatus = session?.let { labels.getString(it.status.labelResource()) },
                         onOpenAgents = { screen = Destination.AGENTS },
                     )
                     Destination.WORKSPACE -> WorkspaceScreen(
@@ -210,15 +240,20 @@ private fun PhoneAgentApp() {
                     )
                     Destination.AGENTS -> AgentCenter(
                         sessions, selectedProject, providers, preferences,
+                        providerRevision = providerRevision,
+                        onModelChanged = { providerRevision++ },
                         onOpenProject = { showProjects = true },
-                        onOpenSettings = { openSettings(SettingsPage.PROVIDERS) },
+                        onOpenSettings = { openSettings(SettingsPage.PROVIDERS, fromChat = true) },
                     )
                     Destination.SETTINGS -> when (settingsPage) {
                         SettingsPage.PROVIDERS -> Column(Modifier.fillMaxSize()) {
-                            TextButton(onClick = { settingsPage = SettingsPage.MAIN }) { Text("All settings") }
+                            TextButton(onClick = ::backFromProviders) {
+                                Text(labels.getString(if (providerSetupFromChat) R.string.agent_chat else R.string.all_settings))
+                            }
                             ProviderSettingsScreen(
                                 providers, Modifier.weight(1f),
                                 onChanged = { providerRevision++ },
+                                onConnectionSaved = { if (providerSetupFromChat) backFromProviders() },
                                 onCodexLogin = ::launchCodex,
                                 onOpenCodexTerminal = { runtime.launchTermux() },
                                 onCheckCodexStatus = { checkCodexCliStatus(runtime) },
@@ -227,12 +262,12 @@ private fun PhoneAgentApp() {
                                         runtime.launchInteractiveCommand(
                                             "codex", project?.takeIf { it.termux }?.location.orEmpty(),
                                         )
-                                    }.onFailure { message(it.message ?: "Could not start Codex in Termux.") }
+                                    }.onFailure { message(it.message ?: labels.getString(R.string.no_codex_start)) }
                                 },
                             )
                         }
                         SettingsPage.MCP -> Column(Modifier.fillMaxSize()) {
-                            TextButton(onClick = { settingsPage = SettingsPage.MAIN }) { Text("All settings") }
+                            TextButton(onClick = { settingsPage = SettingsPage.MAIN }) { Text(labels.getString(R.string.all_settings)) }
                             McpSettingsScreen(Modifier.weight(1f))
                         }
                         else -> SettingsContent(
@@ -246,11 +281,23 @@ private fun PhoneAgentApp() {
                             openMcp = { settingsPage = SettingsPage.MCP },
                             back = { settingsPage = SettingsPage.MAIN },
                             openTerminal = ::openTermux,
+                            requestLanguage = { tag ->
+                                preferences.languageTag = tag
+                                if (Build.VERSION.SDK_INT >= 33) {
+                                    activity.getSystemService(LocaleManager::class.java)
+                                        .applicationLocales = LocaleList.forLanguageTags(tag)
+                                } else {
+                                    activity.recreate()
+                                }
+                            },
+                            languageTag = if (Build.VERSION.SDK_INT >= 33) {
+                                activity.getSystemService(LocaleManager::class.java).applicationLocales.toLanguageTags()
+                            } else preferences.languageTag,
                             requestNotifications = {
                                 if (Build.VERSION.SDK_INT >= 33) {
                                     notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 } else {
-                                    message("This Android version manages notifications in system settings.")
+                                    message(labels.getString(R.string.notifications_system))
                                 }
                             },
                         )
@@ -264,15 +311,15 @@ private fun PhoneAgentApp() {
         if (showProjects) {
             AlertDialog(
                 onDismissRequest = { showProjects = false },
-                title = { Text("Open project") },
+                title = { Text(labels.getString(R.string.open_project)) },
                 text = {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
-                        Text("Open an Android folder or a private Termux project.")
+                        Text(labels.getString(R.string.project_dialog_help))
                         TextButton(onClick = { showProjects = false; createProject = false }) {
-                            Text("New Termux project")
+                            Text(labels.getString(R.string.new_termux_project))
                         }
                         TextButton(onClick = { showProjects = false; createProject = true }) {
-                            Text("Clone repository")
+                            Text(labels.getString(R.string.clone_repository))
                         }
                         preferences.folderHistory.forEach { previous ->
                             TextButton(onClick = { openProject(previous) }) { Text(previous.title) }
@@ -280,14 +327,14 @@ private fun PhoneAgentApp() {
                     }
                 },
                 confirmButton = {
-                    Button(onClick = { showProjects = false; openFolder.launch(null) }) { Text("Android folder") }
+                    Button(onClick = { showProjects = false; openFolder.launch(null) }) { Text(labels.getString(R.string.android_folder)) }
                 },
                 dismissButton = {
                     TextButton(onClick = {
                         showProjects = false
                         termuxPath = project?.takeIf { it.termux }?.location.orEmpty()
                         showTermuxPath = true
-                    }) { Text("Termux path") }
+                    }) { Text(labels.getString(R.string.termux_path)) }
                 },
             )
         }
@@ -302,15 +349,15 @@ private fun PhoneAgentApp() {
         if (showTermuxPath) {
             AlertDialog(
                 onDismissRequest = { if (!opening) showTermuxPath = false },
-                title = { Text("Termux project path") },
+                title = { Text(labels.getString(R.string.termux_project_path)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Use the full path printed by pwd in the project. File operations require Python in Termux.")
+                        Text(labels.getString(R.string.termux_directory_help))
                         OutlinedTextField(
                             value = termuxPath,
                             onValueChange = { termuxPath = it },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Project directory") },
+                            label = { Text(labels.getString(R.string.project_directory)) },
                             placeholder = { Text("/data/data/com.termux/files/home/project") },
                             singleLine = true,
                         )
@@ -327,14 +374,14 @@ private fun PhoneAgentApp() {
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (error: Exception) {
-                                message(error.message ?: "Could not open the Termux directory.")
+                                message(error.message ?: labels.getString(R.string.termux_open_failed))
                             } finally {
                                 opening = false
                             }
                         }
-                    }) { Text(if (opening) "Checking…" else "Open") }
+                    }) { Text(if (opening) labels.getString(R.string.checking) else labels.getString(R.string.open)) }
                 },
-                dismissButton = { TextButton(enabled = !opening, onClick = { showTermuxPath = false }) { Text("Cancel") } },
+                dismissButton = { TextButton(enabled = !opening, onClick = { showTermuxPath = false }) { Text(labels.getString(R.string.cancel)) } },
             )
         }
 
@@ -345,18 +392,18 @@ private fun PhoneAgentApp() {
             }
             AlertDialog(
                 onDismissRequest = { request.answer.complete(false) },
-                title = { Text("Approve ${request.call.name.replace('_', ' ')}?") },
+                title = { Text(labels.getString(R.string.approve_operation, request.call.name.replace('_', ' '))) },
                 text = {
                     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(request.project.location, style = MaterialTheme.typography.labelMedium)
                         if (request.call.name == "execute_command") {
-                            Text("This command runs with the same access as your Termux shell.")
+                            Text(labels.getString(R.string.permission_termux_shell))
                         }
                         SelectionContainer { Text(body, style = MaterialTheme.typography.bodySmall) }
                     }
                 },
-                confirmButton = { Button(onClick = { request.answer.complete(true) }) { Text("Allow once") } },
-                dismissButton = { TextButton(onClick = { request.answer.complete(false) }) { Text("Deny") } },
+                confirmButton = { Button(onClick = { request.answer.complete(true) }) { Text(labels.getString(R.string.allow_once)) } },
+                dismissButton = { TextButton(onClick = { request.answer.complete(false) }) { Text(labels.getString(R.string.deny)) } },
             )
         }
     }

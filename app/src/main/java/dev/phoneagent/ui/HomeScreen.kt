@@ -13,7 +13,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.phoneagent.R
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -30,16 +32,17 @@ fun HomeScreen(
     recentTaskStatus: String? = null,
     onOpenAgents: (() -> Unit)? = null,
 ) {
+    val labels = LocalContext.current
     ScrollableScreen {
-        ScreenTitle("Phone Agent", "Android development workspace")
+        ScreenTitle(labels.getString(R.string.about_app), labels.getString(R.string.android_workspace))
         MonoPanel {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(projectName ?: "Open a project", style = MaterialTheme.typography.headlineMedium)
+                Text(projectName ?: labels.getString(R.string.open_a_project), style = MaterialTheme.typography.headlineMedium)
                 Text(
                     if (projectName == null) {
-                        "Choose a project folder to edit sources and work with an agent."
+                        labels.getString(R.string.home_project_empty)
                     } else {
-                        "Continue editing or give the agent a task."
+                        labels.getString(R.string.home_project_ready)
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -51,15 +54,15 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Button(onClick = onOpenProject) {
-                    Text(if (projectName == null) "Choose folder" else "Open workspace")
+                    Text(if (projectName == null) labels.getString(R.string.choose_folder) else labels.getString(R.string.open_workspace))
                 }
                 if (projectName != null) {
-                    OutlinedButton(onClick = onNewTask) { Text("New agent task") }
+                    OutlinedButton(onClick = onNewTask) { Text(labels.getString(R.string.new_agent_task)) }
                 }
             }
         }
         if (recentTaskTitle != null) {
-            SettingGroup("Latest task") {
+            SettingGroup(labels.getString(R.string.latest_task)) {
                 SettingRow(
                     title = recentTaskTitle,
                     description = recentTaskStatus,
@@ -68,7 +71,7 @@ fun HomeScreen(
                 )
             }
         }
-        SettingGroup("Connections") {
+        SettingGroup(labels.getString(R.string.connections)) {
             SettingRow(
                 "Termux",
                 termuxStatus,
@@ -77,14 +80,14 @@ fun HomeScreen(
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SettingRow(
-                "Model provider",
+                labels.getString(R.string.model_provider),
                 providerStatus,
                 onClick = onOpenProviders,
                 leading = { DestinationIcon(Destination.SETTINGS) },
             )
         }
         if (onStartOnboarding != null) {
-            TextButton(onClick = onStartOnboarding) { Text("Setup guide") }
+            TextButton(onClick = onStartOnboarding) { Text(labels.getString(R.string.setup_guide)) }
         }
     }
 }

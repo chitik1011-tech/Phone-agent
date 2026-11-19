@@ -28,28 +28,32 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import dev.phoneagent.R
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.IOException
 
 @Composable
 fun ProviderSettingsScreen(
     store: ProviderStore,
     modifier: Modifier = Modifier,
     onChanged: () -> Unit = {},
+    onConnectionSaved: () -> Unit = {},
     onOpenCodexTerminal: (() -> Unit)? = null,
     onCodexLogin: (() -> Unit)? = null,
     onCheckCodexStatus: (suspend () -> String)? = null,
     onOpenCodex: (() -> Unit)? = null,
 ) {
+    val labels = LocalContext.current
     val discovery = remember { ProviderDiscovery() }
     val scope = rememberCoroutineScope()
     var settings by remember(store) { mutableStateOf(ProviderSettings()) }
@@ -71,9 +75,9 @@ fun ProviderSettingsScreen(
 
     fun currentSettings(): ProviderSettings = settings.copy(
         timeoutSeconds = timeoutText.toIntOrNull()
-            ?: throw IllegalArgumentException("Enter the timeout in seconds."),
+            ?: throw IllegalArgumentException(labels.getString(R.string.provider_timeout_input)),
         maxOutputTokens = tokenText.toIntOrNull()
-            ?: throw IllegalArgumentException("Enter the output token limit."),
+            ?: throw IllegalArgumentException(labels.getString(R.string.provider_output_input)),
     )
 
     LaunchedEffect(store) {
@@ -84,7 +88,7 @@ fun ProviderSettingsScreen(
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: Exception) {
-            status = "Could not open the saved connection. Remove it or save new settings."
+            status = labels.getString(R.string.provider_load_failed)
         } finally {
             busy = false
         }
@@ -94,9 +98,9 @@ fun ProviderSettingsScreen(
         modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("AI & Models", style = MaterialTheme.typography.headlineMedium)
+        Text(labels.getString(R.string.provider_screen), style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Connect the workspace agent to a provider or an OpenAI-compatible local server.",
+            labels.getString(R.string.provider_connection_hint),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(
@@ -133,10 +137,10 @@ fun ProviderSettingsScreen(
                 }
             },
             enabled = !busy,
-            label = { Text("Base URL") },
+            label = { Text(labels.getString(R.string.base_url)) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             singleLine = true,
-            supportingText = { Text("Use HTTPS for remote servers. Local servers can use loopback HTTP.") },
+            supportingText = { Text(labels.getString(R.string.endpoint_help)) },
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
@@ -146,11 +150,11 @@ fun ProviderSettingsScreen(
                 resetCatalog()
             },
             enabled = !busy,
-            label = { Text(if (settings.preset.keyRequired) "API key" else "API key (optional)") },
+            label = { Text(if (settings.preset.keyRequired) labels.getString(R.string.api_key) else labels.getString(R.string.api_key_optional)) },
             visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 TextButton(onClick = { showKey = !showKey }, enabled = !busy) {
-                    Text(if (showKey) "Hide" else "Show")
+                    Text(if (showKey) labels.getString(R.string.hide) else labels.getString(R.string.show))
                 }
             },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -161,8 +165,8 @@ fun ProviderSettingsScreen(
             value = settings.model,
             onValueChange = { settings = settings.copy(model = it.take(256)) },
             enabled = !busy,
-            label = { Text("Model identifier") },
-            supportingText = { Text("Choose a chat model with tool calling for workspace tasks.") },
+            label = { Text(labels.getString(R.string.model_identifier)) },
+            supportingText = { Text(labels.getString(R.string.model_tools_help)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -170,37 +174,37 @@ fun ProviderSettingsScreen(
             enabled = !busy,
             onClick = {
                 busy = true
-                status = "Checking the provider…"
+                status = labels.getString(R.string.provider_checking)
                 scope.launch {
                     try {
                         models = discovery.models(currentSettings())
-                        status = if (models.isEmpty()) "The provider returned an empty model catalog." else
-                            "Connection verified. ${models.size} models available."
+                        status = if (models.isEmpty()) labels.getString(R.string.chat_model_catalog_empty) else
+                            labels.getString(R.string.provider_verified, models.size)
                         showModels = models.isNotEmpty()
                     } catch (failure: CancellationException) {
                         throw failure
                     } catch (failure: IllegalArgumentException) {
-                        status = failure.message ?: "Check the connection settings."
+                        status = failure.message ?: labels.getString(R.string.provider_check_settings)
                     } catch (failure: IOException) {
-                        status = failure.message ?: "The connection check failed."
+                        status = failure.message ?: labels.getString(R.string.provider_check_failed)
                     } catch (_: Exception) {
-                        status = "Could not read the provider response."
+                        status = labels.getString(R.string.provider_read_failed)
                     } finally {
                         busy = false
                     }
                 }
             },
         ) {
-            Text("Check connection and list models")
+            Text(labels.getString(R.string.test_models))
         }
-        if (models.isNotEmpty()) TextButton(onClick = { showModels = true }) { Text("Choose model") }
+        if (models.isNotEmpty()) TextButton(onClick = { showModels = true }) { Text(labels.getString(R.string.provider_choose_model)) }
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(
                 value = timeoutText,
                 onValueChange = { timeoutText = it.filter(Char::isDigit).take(3) },
                 enabled = !busy,
-                label = { Text("Timeout (s)") },
+                label = { Text(labels.getString(R.string.timeout_seconds)) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
                 modifier = Modifier.weight(1f),
@@ -209,7 +213,7 @@ fun ProviderSettingsScreen(
                 value = tokenText,
                 onValueChange = { tokenText = it.filter(Char::isDigit).take(5) },
                 enabled = !busy,
-                label = { Text("Output tokens") },
+                label = { Text(labels.getString(R.string.output_tokens)) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
                 modifier = Modifier.weight(1f),
@@ -226,20 +230,21 @@ fun ProviderSettingsScreen(
                             candidate.validate()
                             withContext(Dispatchers.IO) { store.save(candidate) }
                             showKey = false
-                            status = "Connection settings saved."
+                            status = labels.getString(R.string.provider_saved)
                             onChanged()
+                            onConnectionSaved()
                         } catch (failure: CancellationException) {
                             throw failure
                         } catch (failure: IllegalArgumentException) {
-                            status = failure.message ?: "Check the connection settings."
+                            status = failure.message ?: labels.getString(R.string.provider_check_settings)
                         } catch (_: Exception) {
-                            status = "Could not save the connection in secure storage."
+                            status = labels.getString(R.string.provider_save_failed)
                         } finally {
                             busy = false
                         }
                     }
                 },
-            ) { Text("Save connection") }
+            ) { Text(labels.getString(R.string.save_connection)) }
             TextButton(
                 enabled = !busy,
                 onClick = {
@@ -252,25 +257,25 @@ fun ProviderSettingsScreen(
                             tokenText = settings.maxOutputTokens.toString()
                             showKey = false
                             models = emptyList()
-                            status = "Connection removed."
+                            status = labels.getString(R.string.provider_removed)
                             onChanged()
                         } catch (failure: CancellationException) {
                             throw failure
                         } catch (_: Exception) {
-                            status = "Could not remove the saved connection."
+                            status = labels.getString(R.string.provider_remove_failed)
                         } finally {
                             busy = false
                         }
                     }
                 },
-            ) { Text("Remove") }
+            ) { Text(labels.getString(R.string.remove)) }
         }
         if (status.isNotEmpty()) Text(status, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         if (onCodexLogin != null || onCheckCodexStatus != null || onOpenCodex != null || onOpenCodexTerminal != null) {
             Text("ChatGPT / Codex CLI", style = MaterialTheme.typography.titleLarge)
             Text(
-                "Use the Codex CLI in Termux with your ChatGPT account. Install the CLI and enable device-code sign-in in your ChatGPT security settings first. The workspace agent uses the connection above.",
+                labels.getString(R.string.codex_cli_help),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (onCodexLogin != null) {
@@ -280,33 +285,33 @@ fun ProviderSettingsScreen(
                         onCodexLogin()
                     },
                     enabled = !checkingCodex,
-                ) { Text("Sign in with ChatGPT") }
+                ) { Text(labels.getString(R.string.chatgpt_sign_in)) }
             }
             if (onCheckCodexStatus != null) {
                 TextButton(
                     enabled = !checkingCodex,
                     onClick = {
                         checkingCodex = true
-                        codexStatus = "Checking the Codex CLI sign-in…"
+                        codexStatus = labels.getString(R.string.codex_checking)
                         scope.launch {
                             try {
                                 codexStatus = onCheckCodexStatus()
                             } catch (failure: CancellationException) {
                                 throw failure
                             } catch (_: Exception) {
-                                codexStatus = "Could not check the Codex CLI sign-in."
+                                codexStatus = labels.getString(R.string.codex_check_failed)
                             } finally {
                                 checkingCodex = false
                             }
                         }
                     },
-                ) { Text("Check Codex sign-in") }
+                ) { Text(labels.getString(R.string.check_codex)) }
             }
             if (codexStatus.isNotEmpty()) Text(codexStatus, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (onOpenCodex != null) TextButton(onClick = onOpenCodex) { Text("Open Codex CLI") }
+            if (onOpenCodex != null) TextButton(onClick = onOpenCodex) { Text(labels.getString(R.string.open_codex)) }
             if (onOpenCodexTerminal != null) {
-                Text("To sign in or check your account manually, run codex login --device-auth or codex login status.")
-                TextButton(onClick = onOpenCodexTerminal) { Text("Open Termux") }
+                Text(labels.getString(R.string.codex_manually))
+                TextButton(onClick = onOpenCodexTerminal) { Text(labels.getString(R.string.open_termux)) }
             }
         }
     }
@@ -329,6 +334,7 @@ private fun ModelCatalogDialog(
     onDismiss: () -> Unit,
     onSelect: (ProviderModel) -> Unit,
 ) {
+    val labels = LocalContext.current
     var search by remember { mutableStateOf("") }
     val filtered = remember(models, search) {
         models.filter { model ->
@@ -338,13 +344,13 @@ private fun ModelCatalogDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Choose a model") },
+        title = { Text(labels.getString(R.string.choose_model)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = search,
                     onValueChange = { search = it },
-                    label = { Text("Search models") },
+                    label = { Text(labels.getString(R.string.search_models)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -360,17 +366,17 @@ private fun ModelCatalogDialog(
                                     Text(model.id, style = MaterialTheme.typography.bodySmall)
                                 }
                                 when (model.supportsTools) {
-                                    true -> Text("Tool calling listed", style = MaterialTheme.typography.bodySmall)
-                                    false -> Text("Tool calling unavailable", style = MaterialTheme.typography.bodySmall)
+                                    true -> Text(labels.getString(R.string.tools_listed), style = MaterialTheme.typography.bodySmall)
+                                    false -> Text(labels.getString(R.string.tools_unavailable), style = MaterialTheme.typography.bodySmall)
                                     null -> Unit
                                 }
                             }
                         }
                     }
                 }
-                if (filtered.isEmpty()) Text("No matching models.")
+                if (filtered.isEmpty()) Text(labels.getString(R.string.no_matching_models))
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(labels.getString(R.string.close)) } },
     )
 }

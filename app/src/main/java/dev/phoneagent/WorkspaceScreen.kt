@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.phoneagent.ui.CodeEditor
@@ -43,12 +44,13 @@ private enum class View { FILES, EDITOR, GIT }
 
 @Composable
 internal fun WorkspaceScreen(project: Workspace?, agentActive: Boolean, onChoose: () -> Unit) {
+    val labels = LocalContext.current
     if (project == null) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            ScreenTitle("Workspace")
+            ScreenTitle(labels.getString(R.string.nav_workspace))
             MonoPanel {
-                Text("Choose a project folder to browse and edit files.")
-                Button(onClick = onChoose) { Text("Open project") }
+                Text(labels.getString(R.string.workspace_pick))
+                Button(onClick = onChoose) { Text(labels.getString(R.string.open_project)) }
             }
         }
         return
@@ -123,15 +125,19 @@ internal fun WorkspaceScreen(project: Workspace?, agentActive: Boolean, onChoose
         Modifier.fillMaxSize().padding(horizontal = 18.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        ScreenTitle(project.ref.title, if (project.ref.termux) "Termux project" else "Android folder") {
-            TextButton(enabled = !busy, onClick = { guard(onChoose) }) { Text("Switch") }
+        ScreenTitle(project.ref.title, if (project.ref.termux) labels.getString(R.string.termux_project) else labels.getString(R.string.android_folder)) {
+            TextButton(enabled = !busy, onClick = { guard(onChoose) }) { Text(labels.getString(R.string.switch_project)) }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(View.FILES, View.EDITOR, View.GIT).forEach { item ->
                 FilterChip(
                     selected = item == view,
                     onClick = { view = item; error = "" },
-                    label = { Text(item.name.lowercase().replaceFirstChar(Char::uppercase)) },
+                    label = { Text(labels.getString(when (item) {
+                        View.FILES -> R.string.workspace_files
+                        View.EDITOR -> R.string.workspace_editor
+                        View.GIT -> R.string.git_name
+                    })) },
                 )
             }
         }
@@ -142,20 +148,20 @@ internal fun WorkspaceScreen(project: Workspace?, agentActive: Boolean, onChoose
                     TextButton(
                         enabled = dir.isNotBlank() && !busy,
                         onClick = { dir = dir.substringBeforeLast('/', ""); search = "" },
-                    ) { Text("Parent") }
-                    TextButton(onClick = { revision++ }) { Text("Refresh") }
+                    ) { Text(labels.getString(R.string.parent_folder)) }
+                    TextButton(onClick = { revision++ }) { Text(labels.getString(R.string.refresh)) }
                     TextButton(enabled = !agentActive && !busy, onClick = {
                         guard { name = ""; newFile = true }
-                    }) { Text("New file") }
+                    }) { Text(labels.getString(R.string.new_file)) }
                 }
                 Text(dir.ifBlank { "." }, style = MaterialTheme.typography.labelLarge)
                 OutlinedTextField(
                     value = search, onValueChange = { search = it }, singleLine = true,
-                    label = { Text("Filter this folder") }, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(labels.getString(R.string.filter_folder)) }, modifier = Modifier.fillMaxWidth(),
                 )
                 LazyColumn(Modifier.weight(1f)) {
-                    if (loadingList) item { Text("Loading files…") }
-                    else if (entries.isEmpty()) item { Text("Folder is empty.") }
+                    if (loadingList) item { Text(labels.getString(R.string.loading_files)) }
+                    else if (entries.isEmpty()) item { Text(labels.getString(R.string.empty_folder)) }
                     items(entries.filter { it.contains(search, ignoreCase = true) }) { entry ->
                         val directory = entry.endsWith('/')
                         val path = listOf(dir, entry.removeSuffix("/")).filter(String::isNotBlank).joinToString("/")
@@ -168,7 +174,7 @@ internal fun WorkspaceScreen(project: Workspace?, agentActive: Boolean, onChoose
                 }
             }
             View.EDITOR -> {
-                if (opened == null) Text("Select a file in the Files tab.")
+                if (opened == null) Text(labels.getString(R.string.select_file))
                 else {
                     Text(opened.orEmpty(), style = MaterialTheme.typography.titleSmall)
                     CodeEditor(
@@ -197,34 +203,40 @@ internal fun WorkspaceScreen(project: Workspace?, agentActive: Boolean, onChoose
                                 pendingNew = false
                                 revision++
                             }
-                        }) { Text("Save") }
+                        }) { Text(labels.getString(R.string.save)) }
                         if (dirty) TextButton(enabled = !busy, onClick = {
                             draft = original
                             if (pendingNew) { opened = null; pendingNew = false; view = View.FILES }
-                        }) { Text("Discard") }
+                        }) { Text(labels.getString(R.string.discard)) }
                     }
                 }
             }
             View.GIT -> {
-                if (!project.ref.termux) Text("Open the repository's Termux path to use Git.")
+                if (!project.ref.termux) Text(labels.getString(R.string.git_require_termux))
                 else {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Status", "Diff", "History", "Branches", "Worktrees").forEach { operation ->
+                        listOf(
+                            "Status" to R.string.git_status,
+                            "Diff" to R.string.git_diff,
+                            "History" to R.string.chat_history,
+                            "Branches" to R.string.git_branches,
+                            "Worktrees" to R.string.git_worktrees,
+                        ).forEach { (operation, label) ->
                             OutlinedButton(
                                 enabled = !busy, onClick = { runWorkspace { gitOutput = project.git(operation) } },
-                            ) { Text(operation) }
+                            ) { Text(labels.getString(label)) }
                         }
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         GitAction.entries.forEach { action ->
                             TextButton(enabled = !busy && !agentActive, onClick = { gitAction = action }) {
-                                Text(action.label)
+                                Text(labels.getString(action.labelResource))
                             }
                         }
                     }
                     SelectionContainer(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
                         Text(
-                            gitOutput.ifBlank { "Choose a Git view." },
+                            gitOutput.ifBlank { labels.getString(R.string.git_choose_view) },
                             fontFamily = FontFamily.Monospace,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -247,11 +259,11 @@ internal fun WorkspaceScreen(project: Workspace?, agentActive: Boolean, onChoose
     if (newFile) {
         AlertDialog(
             onDismissRequest = { newFile = false },
-            title = { Text("New file") },
+            title = { Text(labels.getString(R.string.new_file)) },
             text = {
                 OutlinedTextField(
                     value = name, onValueChange = { name = it }, singleLine = true,
-                    label = { Text("File name") },
+                    label = { Text(labels.getString(R.string.file_name)) },
                 )
             },
             confirmButton = {
@@ -269,25 +281,25 @@ internal fun WorkspaceScreen(project: Workspace?, agentActive: Boolean, onChoose
                         error = failure.message.orEmpty()
                         newFile = false
                     }
-                }) { Text("Create in editor") }
+                }) { Text(labels.getString(R.string.create_editor)) }
             },
-            dismissButton = { TextButton(onClick = { newFile = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { newFile = false }) { Text(labels.getString(R.string.cancel)) } },
         )
     }
 
     discard?.let { action ->
         AlertDialog(
             onDismissRequest = { discard = null },
-            title = { Text("Discard unsaved changes?") },
+            title = { Text(labels.getString(R.string.discard_changes)) },
             confirmButton = {
                 TextButton(onClick = {
                     draft = original
                     if (pendingNew) { opened = null; pendingNew = false }
                     discard = null
                     action()
-                }) { Text("Discard") }
+                }) { Text(labels.getString(R.string.discard)) }
             },
-            dismissButton = { TextButton(onClick = { discard = null }) { Text("Keep editing") } },
+            dismissButton = { TextButton(onClick = { discard = null }) { Text(labels.getString(R.string.keep_editing)) } },
         )
     }
 }
