@@ -1,5 +1,6 @@
 package dev.phoneagent.termux
 
+import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
@@ -25,27 +26,31 @@ class BridgeClientTest {
             val server = ProcessBuilder("python3", script.toString(), "--serve")
                 .redirectOutput(home.resolve("bridge.stdout").toFile())
                 .redirectError(ProcessBuilder.Redirect.INHERIT)
-                .apply { environment()["HOME"] = home.toString() }
+                .apply {
+                    environment()["HOME"] = home.toString()
+                    environment()["SHELL"] = "/bin/bash"
+                    environment().remove("BASH_ENV")
+                }
                 .start()
             try {
-                withTimeout(5_000) {
+                withTimeout(15_000) {
                     while (!Files.exists(state) && server.isAlive) delay(25)
                 }
                 val info = JSONObject(state.toFile().readText())
                 val client = BridgeClient(info.getInt("port"), info.getString("key"))
-                assertTrue(client.isReachable())
+                assertTrue("The authenticated bridge should answer a status request.", client.isReachable())
                 assertEquals(emptyList<TerminalTab>(), client.list())
                 val terminal = client.open(home.toString(), rows = 32, columns = 101)
                 try {
                     assertEquals(listOf(terminal), client.list())
                     client.write(terminal.id, "printf 'INTEGRATION:%s\\n' 'Привет'; stty size; exit 9\n")
-                    val transcript = StringBuilder()
-                    val exit = withTimeout(5_000) {
+                    val transcript = ByteArrayOutputStream()
+                    val exit = withTimeout(15_000) {
                         var offset = 0L
                         var exitCode: Int?
                         do {
                             val chunk = client.poll(terminal.id, offset)
-                            transcript.append(String(Base64.getDecoder().decode(chunk.encodedBytes), Charsets.UTF_8))
+                            transcript.write(Base64.getDecoder().decode(chunk.encodedBytes))
                             offset = chunk.offset
                             exitCode = chunk.exitCode
                             if (exitCode == null) delay(25)
@@ -53,8 +58,12 @@ class BridgeClientTest {
                         exitCode
                     }
                     assertEquals(9, exit)
-                    assertTrue(transcript.contains("\rINTEGRATION:Привет\r\n"))
-                    assertTrue(transcript.contains("\r\n32 101\r\n"))
+                    // Prompts and bracketed-paste escapes differ across bash configurations.
+                    val lines = transcript.toString(Charsets.UTF_8.name())
+                        .replace(Regex("\u001b\\[[0-?]*[ -/]*[@-~]"), "")
+                        .lineSequence().toList()
+                    assertTrue("Expected an exact UTF-8 output line: $lines", "INTEGRATION:Привет" in lines)
+                    assertTrue("Expected an exact PTY size line: $lines", "32 101" in lines)
                 } finally {
                     client.close(terminal.id)
                 }

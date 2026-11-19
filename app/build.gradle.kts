@@ -31,6 +31,11 @@ android {
     }
 
     buildFeatures { compose = true }
+
+    testOptions.unitTests.all {
+        it.testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
