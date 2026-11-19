@@ -6,6 +6,12 @@ Native Android IDE for local projects, an interactive Termux terminal, and API-b
 
 Мобильная IDE для Android со встроенным терминалом Termux и ИИ-агентами для работы с кодом. Написана на Kotlin с Jetpack Compose.
 
+## AI coding agent on phone
+
+Phone Agent is a mobile IDE for Android with a code editor, a built-in Termux terminal, and AI coding agents. If you want **Codex on phone**, you can open the Codex CLI in Termux and sign in with your ChatGPT account once the CLI is installed.
+
+Exploring **OpenCode** or **Google Antigravity** for mobile coding? Phone Agent gives you a native Android workspace for editing project files, running terminal commands, and working with an AI coding agent.
+
 ## Build
 
 Install JDK 17 and the Android SDK platform and build-tools for API 35, then run:
