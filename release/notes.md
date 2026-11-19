@@ -1,12 +1,9 @@
-First Android development preview. This build uses Android's debug signing key unless release signing was configured.
+This preview improves cancellation for approved Termux shell commands. It keeps the existing interactive PTY and its terminal tabs separate from agent commands.
 
-- Native workspace for Android folder grants and private Termux project directories.
-- Termux command results and an interactive local PTY terminal with multiple tabs.
-- OpenAI-compatible agent tool calls, explicit shell approvals, and independent read-only review agents.
-- Project editor, Git views and operations, encrypted provider settings, and a persisted agent session journal.
-- Manual MCP tool discovery and invocation over Streamable HTTP, and Root/Shizuku access diagnostics.
-- OLED and light monochrome themes.
+- Stopping an agent closes the command connection. The bridge terminates the command's process group on disconnect or timeout.
+- Command results include separate stdout, stderr, an exit code, and a flag when either stream exceeds its 32 KiB capture limit.
+- The app does not replay a submitted command if its connection is lost. A shell command that detaches into a separate process group can outlive the original group.
 
-Install the attached APK on Android 10 or later. To use the embedded terminal, install Termux, enable `allow-external-apps=true` in `~/.termux/termux.properties`, grant Phone Agent the RUN_COMMAND permission, and install Python in Termux. See the manual checks in `docs/device-checks.md`.
+Install the attached APK on Android 10 or later. Termux 0.118 or later, Python in Termux, `allow-external-apps=true`, and the Android RUN_COMMAND permission are required for the bridge. A debug APK can be updated in place only by an APK signed with the same certificate.
 
-This is a development preview. Console and agent features require a working Termux install or an API endpoint where applicable. Termux permissions, ColorOS background behavior, and live provider accounts are device checks. ChatGPT authorization in this version signs in to the supported Codex CLI in Termux. Review subagents are read-only. Advanced LSP, GitHub pull-request workflows, and project device integration remain in development.
+The process-group tests run against real Linux child processes. Android delivery to Termux and the full OnePlus Ace 5 / ColorOS force-stop scenario still need a physical-device check. See `docs/device-checks.md`.
