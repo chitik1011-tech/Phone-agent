@@ -21,9 +21,9 @@ jobs:
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
       - name: Install Android SDK components
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+        run: bash .github/install-android-sdk.sh
       - name: Verify projects and assemble APKs
         run: |
           ./gradlew --no-daemon --dependency-verification strict :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
@@ -51,7 +51,12 @@ jobs:
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
+      - name: Install Android SDK components for release signing
+        if: env.HAS_RELEASE_KEY == 'true'
+        env:
+          HAS_RELEASE_KEY: ${{ secrets.PHONE_AGENT_KEYSTORE_BASE64 != '' }}
+        run: bash .github/install-android-sdk.sh
       - name: Publish the verified preview if the tag is new
         env:
           GH_TOKEN: ${{ github.token }}
@@ -71,7 +76,6 @@ jobs:
             trap 'rm -f "$PHONE_AGENT_KEYSTORE"' EXIT
             printf '%s' "$PHONE_AGENT_KEYSTORE_BASE64" | base64 --decode > "$PHONE_AGENT_KEYSTORE"
             unset PHONE_AGENT_KEYSTORE_BASE64
-            sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
             ./gradlew --no-daemon --dependency-verification strict :app:assembleRelease
             "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify app/build/outputs/apk/release/app-release.apk
             cp app/build/outputs/apk/release/app-release.apk Phone-Agent-release.apk
