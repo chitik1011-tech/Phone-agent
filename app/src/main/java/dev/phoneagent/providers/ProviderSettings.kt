@@ -3,6 +3,14 @@ package dev.phoneagent.providers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
+const val PROVIDER_CONNECT_TIMEOUT_SECONDS = 3L
+const val DEFAULT_OUTPUT_TOKENS = 4_096
+val OUTPUT_TOKEN_RANGE = 256..32_768
+
+enum class ReasoningEffort(val wireValue: String?) {
+    DEFAULT(null), LOW("low"), MEDIUM("medium"), HIGH("high"), EXTRA_HIGH("xhigh"), MAX("max"),
+}
+
 enum class ProviderPreset(
     val label: String,
     val defaultBaseUrl: String,
@@ -22,8 +30,8 @@ data class ProviderSettings(
     val baseUrl: String = preset.defaultBaseUrl,
     val model: String = "",
     val apiKey: String = "",
-    val timeoutSeconds: Int = 60,
-    val maxOutputTokens: Int = 4096,
+    val maxOutputTokens: Int = DEFAULT_OUTPUT_TOKENS,
+    val reasoning: ReasoningEffort = ReasoningEffort.DEFAULT,
 ) {
     fun endpoint(vararg segments: String): HttpUrl {
         val base = baseUrl.trim().trimEnd('/')
@@ -51,8 +59,7 @@ data class ProviderSettings(
         require(model.length <= 256 && model.none(Char::isISOControl)) {
             "Enter a valid model identifier."
         }
-        require(timeoutSeconds in 10..600) { "Set the timeout between 10 and 600 seconds." }
-        require(maxOutputTokens in 256..32_768) { "Set the output limit between 256 and 32768 tokens." }
+        require(maxOutputTokens in OUTPUT_TOKEN_RANGE) { "Set the output limit between 256 and 32768 tokens." }
     }
 
     override fun toString(): String = "ProviderSettings(preset=${preset.name}, credentials=redacted)"

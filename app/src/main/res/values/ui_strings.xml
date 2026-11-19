@@ -26,7 +26,6 @@
     <string name="session_cancelled">Cancelled</string>
     <string name="session_interrupted">Interrupted</string>
     <string name="chat_loading_models">Loading models…</string>
-    <string name="chat_model_catalog_failed">Could not load the list. You can enter a model ID.</string>
     <string name="chat_model_catalog_empty">The provider returned no models.</string>
     <string name="chat_model_save_failed">Could not save the model.</string>
     <string name="search_models">Search models</string>
@@ -183,7 +182,6 @@
     <string name="endpoint_help">Use HTTPS for remote servers. Local servers can use loopback HTTP.</string>
     <string name="model_tools_help">Choose a chat model with tool calling for workspace tasks.</string>
     <string name="test_models">Check connection and list models</string>
-    <string name="timeout_seconds">Timeout (s)</string>
     <string name="output_tokens">Output tokens</string>
     <string name="save_connection">Save connection</string>
     <string name="remove">Remove</string>
@@ -253,8 +251,6 @@
     <string name="termux_probe_exit">Termux probe exited with %1$d.</string>
     <string name="termux_bridge_setup">Open Termux once. Set allow-external-apps=true in ~/.termux/termux.properties, run termux-reload-settings, and install Python with pkg install python. Connecting installs the bridge in Termux home.</string>
     <string name="provider_connection_hint">Connect the workspace agent to a provider or an OpenAI-compatible local server.</string>
-    <string name="provider_timeout_input">Enter the timeout in seconds.</string>
-    <string name="provider_output_input">Enter the output token limit.</string>
     <string name="provider_load_failed">Could not open the saved connection. Remove it or save new settings.</string>
     <string name="provider_checking">Checking the provider…</string>
     <string name="provider_verified">Connection verified. Models available: %1$d.</string>
@@ -303,4 +299,23 @@
     <string name="root_timeout">The root manager did not respond within 30 seconds.</string>
     <string name="root_uid">Root unverified (UID %1$d).</string>
     <string name="root_exit">Root unverified (exit code %1$d). Check your root manager.</string>
+    <string name="saved_models">Saved models</string>
+    <string name="model_import">Import catalog</string>
+    <string name="model_manual_add">Add by ID</string>
+    <string name="models_imported">Models saved from catalog: %1$d</string>
+    <string name="current_model">Selected</string>
+    <string name="model_reasoning">Reasoning level</string>
+    <string name="model_reasoning_default_only">Only the provider default is available for this model or mode.</string>
+    <string name="model_reasoning_default">Auto</string>
+    <string name="model_reasoning_low">Low</string>
+    <string name="model_reasoning_medium">Medium</string>
+    <string name="model_reasoning_high">High</string>
+    <string name="model_reasoning_extra_high">Extra high</string>
+    <string name="model_reasoning_max">Maximum</string>
+    <string name="model_token_range">%1$d–%2$d tokens per response</string>
+    <string name="model_max_tokens">Set maximum</string>
+    <string name="provider_connect_timeout">Connection timeout · 3 s</string>
+    <string name="model_use">Use model</string>
+    <string name="model_chat_summary">%1$s · %2$s · %3$d tokens</string>
+    <string name="chat_model_catalog_failed">Could not load the catalog. You can add a model by ID.</string>
 </resources>

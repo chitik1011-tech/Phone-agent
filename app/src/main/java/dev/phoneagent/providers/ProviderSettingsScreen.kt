@@ -57,8 +57,7 @@ fun ProviderSettingsScreen(
     val discovery = remember { ProviderDiscovery() }
     val scope = rememberCoroutineScope()
     var settings by remember(store) { mutableStateOf(ProviderSettings()) }
-    var timeoutText by remember(store) { mutableStateOf("60") }
-    var tokenText by remember(store) { mutableStateOf("4096") }
+    var library by remember(store) { mutableStateOf(ProviderLibrary()) }
     var showKey by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(true) }
     var status by remember { mutableStateOf("") }
@@ -73,18 +72,21 @@ fun ProviderSettingsScreen(
         status = ""
     }
 
-    fun currentSettings(): ProviderSettings = settings.copy(
-        timeoutSeconds = timeoutText.toIntOrNull()
-            ?: throw IllegalArgumentException(labels.getString(R.string.provider_timeout_input)),
-        maxOutputTokens = tokenText.toIntOrNull()
-            ?: throw IllegalArgumentException(labels.getString(R.string.provider_output_input)),
-    )
+    fun selectModel(id: String) {
+        val existing = library.connection(settings.preset)?.takeIf { saved ->
+            runCatching { saved.connection.endpoint() == settings.endpoint() }.getOrDefault(false)
+        }?.models?.firstOrNull { it.id == id }
+        settings = settings.copy(
+            model = id,
+            maxOutputTokens = existing?.maxOutputTokens ?: DEFAULT_OUTPUT_TOKENS,
+            reasoning = existing?.reasoning ?: ReasoningEffort.DEFAULT,
+        )
+    }
 
     LaunchedEffect(store) {
         try {
-            settings = withContext(Dispatchers.IO) { store.load() }
-            timeoutText = settings.timeoutSeconds.toString()
-            tokenText = settings.maxOutputTokens.toString()
+            library = withContext(Dispatchers.IO) { store.library() }
+            settings = library.selected ?: ProviderSettings()
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: Exception) {
@@ -113,12 +115,8 @@ fun ProviderSettingsScreen(
                     enabled = !busy,
                     onClick = {
                         if (preset != settings.preset) {
-                            settings = settings.copy(
-                                preset = preset,
-                                baseUrl = preset.defaultBaseUrl,
-                                model = "",
-                                apiKey = "",
-                            )
+                            val saved = library.connection(preset)
+                            settings = saved?.settings(saved.connection.model) ?: ProviderSettings(preset = preset)
                             showKey = false
                             resetCatalog()
                         }
@@ -131,7 +129,7 @@ fun ProviderSettingsScreen(
             value = settings.baseUrl,
             onValueChange = { url ->
                 if (url != settings.baseUrl) {
-                    settings = settings.copy(baseUrl = url.take(2048), apiKey = "")
+                    settings = settings.copy(baseUrl = url.take(2048), apiKey = "", model = "", reasoning = ReasoningEffort.DEFAULT)
                     showKey = false
                     resetCatalog()
                 }
@@ -163,7 +161,7 @@ fun ProviderSettingsScreen(
         )
         OutlinedTextField(
             value = settings.model,
-            onValueChange = { settings = settings.copy(model = it.take(256)) },
+            onValueChange = { selectModel(it.take(256)) },
             enabled = !busy,
             label = { Text(labels.getString(R.string.model_identifier)) },
             supportingText = { Text(labels.getString(R.string.model_tools_help)) },
@@ -177,7 +175,7 @@ fun ProviderSettingsScreen(
                 status = labels.getString(R.string.provider_checking)
                 scope.launch {
                     try {
-                        models = discovery.models(currentSettings())
+                        models = discovery.models(settings)
                         status = if (models.isEmpty()) labels.getString(R.string.chat_model_catalog_empty) else
                             labels.getString(R.string.provider_verified, models.size)
                         showModels = models.isNotEmpty()
@@ -199,26 +197,7 @@ fun ProviderSettingsScreen(
         }
         if (models.isNotEmpty()) TextButton(onClick = { showModels = true }) { Text(labels.getString(R.string.provider_choose_model)) }
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(
-                value = timeoutText,
-                onValueChange = { timeoutText = it.filter(Char::isDigit).take(3) },
-                enabled = !busy,
-                label = { Text(labels.getString(R.string.timeout_seconds)) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-            OutlinedTextField(
-                value = tokenText,
-                onValueChange = { tokenText = it.filter(Char::isDigit).take(5) },
-                enabled = !busy,
-                label = { Text(labels.getString(R.string.output_tokens)) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-        }
+        Text(labels.getString(R.string.provider_connect_timeout), style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 enabled = !busy,
@@ -226,9 +205,11 @@ fun ProviderSettingsScreen(
                     busy = true
                     scope.launch {
                         try {
-                            val candidate = currentSettings()
-                            candidate.validate()
-                            withContext(Dispatchers.IO) { store.save(candidate) }
+                            val candidate = settings
+                            library = withContext(Dispatchers.IO) {
+                                store.save(candidate, models)
+                                store.library()
+                            }
                             showKey = false
                             status = labels.getString(R.string.provider_saved)
                             onChanged()
@@ -246,15 +227,16 @@ fun ProviderSettingsScreen(
                 },
             ) { Text(labels.getString(R.string.save_connection)) }
             TextButton(
-                enabled = !busy,
+                enabled = !busy && library.connection(settings.preset) != null,
                 onClick = {
                     busy = true
                     scope.launch {
                         try {
-                            withContext(Dispatchers.IO) { store.clear() }
-                            settings = ProviderSettings()
-                            timeoutText = settings.timeoutSeconds.toString()
-                            tokenText = settings.maxOutputTokens.toString()
+                            library = withContext(Dispatchers.IO) {
+                                store.remove(settings.preset)
+                                store.library()
+                            }
+                            settings = library.selected ?: ProviderSettings()
                             showKey = false
                             models = emptyList()
                             status = labels.getString(R.string.provider_removed)
@@ -321,7 +303,7 @@ fun ProviderSettingsScreen(
             models = models,
             onDismiss = { showModels = false },
             onSelect = { model ->
-                settings = settings.copy(model = model.id)
+                selectModel(model.id)
                 showModels = false
             },
         )

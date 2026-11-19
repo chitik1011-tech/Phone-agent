@@ -26,7 +26,6 @@
     <string name="session_cancelled">Остановлено</string>
     <string name="session_interrupted">Прервано</string>
     <string name="chat_loading_models">Загрузка моделей…</string>
-    <string name="chat_model_catalog_failed">Не удалось загрузить список. Введи ID модели вручную.</string>
     <string name="chat_model_catalog_empty">Провайдер не вернул список моделей.</string>
     <string name="chat_model_save_failed">Не удалось сохранить модель.</string>
     <string name="search_models">Поиск моделей</string>
@@ -183,7 +182,6 @@
     <string name="endpoint_help">Для удалённого сервера используй HTTPS. Локальный сервер может использовать HTTP на loopback.</string>
     <string name="model_tools_help">Для задач с проектом выбери модель, которая умеет вызывать инструменты.</string>
     <string name="test_models">Проверить подключение и показать модели</string>
-    <string name="timeout_seconds">Тайм-аут (с)</string>
     <string name="output_tokens">Токены ответа</string>
     <string name="save_connection">Сохранить подключение</string>
     <string name="remove">Удалить</string>
@@ -253,8 +251,6 @@
     <string name="termux_probe_exit">Проверка Termux завершилась с кодом %1$d.</string>
     <string name="termux_bridge_setup">Открой Termux. Добавь allow-external-apps=true в ~/.termux/termux.properties, выполни termux-reload-settings и установи Python командой pkg install python. При подключении мост установится в домашнюю папку Termux.</string>
     <string name="provider_connection_hint">Подключи агента к провайдеру или локальному серверу с API, совместимым с OpenAI.</string>
-    <string name="provider_timeout_input">Укажи тайм-аут в секундах.</string>
-    <string name="provider_output_input">Укажи лимит токенов ответа.</string>
     <string name="provider_load_failed">Не удалось открыть сохранённое подключение. Удали его или сохрани новые настройки.</string>
     <string name="provider_checking">Проверка провайдера…</string>
     <string name="provider_verified">Подключение подтверждено. Доступно моделей: %1$d.</string>
@@ -303,4 +299,23 @@
     <string name="root_timeout">Менеджер root не ответил за 30 секунд.</string>
     <string name="root_uid">Root не подтверждён (UID %1$d).</string>
     <string name="root_exit">Root не подтверждён (код выхода %1$d). Проверь менеджер root.</string>
+    <string name="saved_models">Сохранённые модели</string>
+    <string name="model_import">Импортировать каталог</string>
+    <string name="model_manual_add">Добавить по ID</string>
+    <string name="models_imported">Сохранено моделей из каталога: %1$d</string>
+    <string name="current_model">Выбрана</string>
+    <string name="model_reasoning">Уровень рассуждений</string>
+    <string name="model_reasoning_default_only">Для этой модели или режима доступен уровень провайдера по умолчанию.</string>
+    <string name="model_reasoning_default">Авто</string>
+    <string name="model_reasoning_low">Низкий</string>
+    <string name="model_reasoning_medium">Средний</string>
+    <string name="model_reasoning_high">Высокий</string>
+    <string name="model_reasoning_extra_high">Очень высокий</string>
+    <string name="model_reasoning_max">Максимальный</string>
+    <string name="model_token_range">%1$d–%2$d токенов на ответ</string>
+    <string name="model_max_tokens">Поставить максимум</string>
+    <string name="provider_connect_timeout">Тайм-аут подключения · 3 с</string>
+    <string name="model_use">Выбрать модель</string>
+    <string name="model_chat_summary">%1$s · %2$s · %3$d токенов</string>
+    <string name="chat_model_catalog_failed">Не удалось загрузить каталог. Можно добавить модель по ID.</string>
 </resources>

@@ -45,7 +45,10 @@ import dev.phoneagent.agent.AgentRunner
 import dev.phoneagent.agent.OpenAiProvider
 import dev.phoneagent.agent.ProviderConfig
 import dev.phoneagent.providers.AgentModelPicker
-import dev.phoneagent.providers.ProviderSettings
+import dev.phoneagent.providers.ProviderLibrary
+import dev.phoneagent.providers.ReasoningEffort
+import dev.phoneagent.providers.labelResource
+import dev.phoneagent.providers.reasoningLevels
 import dev.phoneagent.providers.ProviderStore
 import dev.phoneagent.session.AgentSessions
 import dev.phoneagent.session.SessionEvent
@@ -88,11 +91,12 @@ internal fun AgentCenter(
     val history by produceState(emptyList<SessionSnapshot>(), revision) {
         value = sessions.recent()
     }
-    val connection by produceState<ProviderSettings?>(null, providers, providerRevision) {
+    val library by produceState(ProviderLibrary(), providers, providerRevision) {
         value = withContext(Dispatchers.IO) {
-            runCatching { providers.load().also { it.validate(requireModel = false) } }.getOrNull()
+            runCatching { providers.library() }.getOrDefault(ProviderLibrary())
         }
     }
+    val connection = library.selected
     val session = if (fresh) null else {
         selected?.let { id -> history.firstOrNull { it.id == id } }
             ?: current?.takeIf { it.spec.project == location }
@@ -134,15 +138,18 @@ internal fun AgentCenter(
         scope.launch {
             try {
                 val providerConfig = withContext(Dispatchers.IO) {
-                    val config = providers.load()
-                    config.validate()
+                    val stored = providers.library()
+                    val config = checkNotNull(stored.selected)
+                    val model = checkNotNull(stored.connection(config.preset)).models.first { it.id == config.model }
+                    val levels = reasoningLevels(config, model, hasTools = project != null)
                     ProviderConfig(
-                        config.baseUrl, config.model, config.apiKey, config.timeoutSeconds, config.maxOutputTokens,
+                        config.baseUrl, config.model, config.apiKey, config.maxOutputTokens,
+                        config.reasoning.takeIf { it in levels } ?: ReasoningEffort.DEFAULT,
                     )
                 }
                 val provider = OpenAiProvider(providerConfig)
                 val reviewer = reviewerModel.takeIf { it.isNotBlank() && it != provider.model }
-                    ?.let { OpenAiProvider(providerConfig.copy(model = it)) }
+                    ?.let { OpenAiProvider(providerConfig.copy(model = it, reasoning = ReasoningEffort.DEFAULT)) }
                 val messages = resume?.let { sessions.checkpoint(it.id)?.let(::readCheckpoint) }.orEmpty()
                 sessions.start(SessionSpec(instruction, location, provider.model, options.mode.name)) {
                     runCodingAgent(project, provider, reviewer, instruction, options, messages)
@@ -180,11 +187,23 @@ internal fun AgentCenter(
             modifier = Modifier.fillMaxWidth(),
         ) {
             val model = configured?.model?.takeIf(String::isNotBlank)
-            Text(
-                model?.let { stringResource(R.string.chat_model_value, it) } ?: stringResource(R.string.choose_model),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Column {
+                Text(
+                    model?.let { stringResource(R.string.chat_model_value, it) } ?: stringResource(R.string.choose_model),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (configured != null) {
+                    val saved = library.connection(configured.preset)?.models?.firstOrNull { it.id == configured.model }
+                    val effort = if (saved != null && configured.reasoning in reasoningLevels(configured, saved, project != null)) {
+                        configured.reasoning
+                    } else ReasoningEffort.DEFAULT
+                    Text(
+                        stringResource(R.string.model_chat_summary, configured.preset.label, stringResource(effort.labelResource()), configured.maxOutputTokens),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = { showHistory = !showHistory }) {
@@ -282,9 +301,11 @@ internal fun AgentCenter(
     if (pickerOpen && connection != null) {
         AgentModelPicker(
             store = providers,
-            connection = checkNotNull(connection),
+            library = library,
+            hasProject = project != null,
             onDismiss = { pickerOpen = false },
-            onSaved = { pickerOpen = false; onModelChanged() },
+            onChanged = onModelChanged,
+            onOpenProviders = onOpenSettings,
         )
     }
 }

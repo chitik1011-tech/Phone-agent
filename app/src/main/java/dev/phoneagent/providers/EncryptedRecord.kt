@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileNotFoundException
 import java.security.KeyStore
@@ -24,15 +25,16 @@ internal class EncryptedRecord(
     fun read(): String? = synchronized(lock) {
         val record = try {
             file.openRead().use { input ->
-                val bytes = ByteArray(maxRecordBytes + 1)
-                var size = 0
-                while (size < bytes.size) {
-                    val read = input.read(bytes, size, bytes.size - size)
+                val output = ByteArrayOutputStream()
+                val chunk = ByteArray(8192)
+                while (true) {
+                    val read = input.read(chunk)
                     if (read == -1) break
-                    size += read
+                    check(output.size() + read <= maxRecordBytes) { "Invalid encrypted record size." }
+                    output.write(chunk, 0, read)
                 }
-                check(size in (HEADER_BYTES + TAG_BYTES)..maxRecordBytes) { "Invalid encrypted record size." }
-                bytes.copyOf(size)
+                check(output.size() >= HEADER_BYTES + TAG_BYTES) { "Invalid encrypted record size." }
+                output.toByteArray()
             }
         } catch (_: FileNotFoundException) {
             if (file.baseFile.exists()) error("Cannot read secure storage.")

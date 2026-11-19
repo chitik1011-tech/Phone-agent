@@ -7,6 +7,36 @@ import org.junit.Test
 
 class ProviderSettingsTest {
     @Test
+    fun upgradesLegacyConnectionWithoutLosingTheModelOrTokenLimit() {
+        val library = decodeLibrary("""
+            {
+              "preset":"OPENROUTER","baseUrl":"https://openrouter.ai/api/v1","model":"provider/a",
+              "apiKey":"test-key","timeoutSeconds":60,"maxOutputTokens":2048
+            }
+        """.trimIndent())
+        val selected = checkNotNull(library.selected)
+        assertEquals("provider/a", selected.model)
+        assertEquals(2_048, selected.maxOutputTokens)
+        assertEquals("test-key", selected.apiKey)
+        assertEquals(ReasoningEffort.DEFAULT, selected.reasoning)
+        assertEquals(3L, PROVIDER_CONNECT_TIMEOUT_SECONDS)
+    }
+
+    @Test
+    fun filtersUnavailableEffortsForKnownModelsAndProjectMode() {
+        assertEquals(listOf(ReasoningEffort.DEFAULT), reasoningLevels(
+            ProviderSettings(preset = ProviderPreset.CLAUDE), SavedModel("claude-sonnet"), hasTools = false,
+        ))
+        assertEquals(listOf(ReasoningEffort.DEFAULT), reasoningLevels(
+            ProviderSettings(preset = ProviderPreset.DEEPSEEK), SavedModel("deepseek-pro"), hasTools = true,
+        ))
+        assertEquals(ReasoningEffort.EXTRA_HIGH, reasoningLevels(
+            ProviderSettings(preset = ProviderPreset.OPENROUTER), SavedModel("provider/a", supportsReasoning = true),
+            hasTools = true,
+        ).last())
+    }
+
+    @Test
     fun urlPathPreservesProviderPrefixAndAppendsEndpointSegments() {
         assertEquals(
             "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",

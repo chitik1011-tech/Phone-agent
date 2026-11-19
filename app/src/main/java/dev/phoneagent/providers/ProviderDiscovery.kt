@@ -8,12 +8,15 @@ import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
+import java.net.Proxy
 import java.util.concurrent.TimeUnit
 
 data class ProviderModel(
     val id: String,
     val title: String,
     val supportsTools: Boolean?,
+    val supportsReasoning: Boolean? = null,
+    val maxCompletionTokens: Int? = null,
 )
 
 class ProviderDiscovery(private val client: OkHttpClient = OkHttpClient()) {
@@ -36,7 +39,9 @@ class ProviderDiscovery(private val client: OkHttpClient = OkHttpClient()) {
             .followRedirects(false)
             .followSslRedirects(false)
             .retryOnConnectionFailure(false)
-            .callTimeout(settings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
+            .apply { if (catalog.host in setOf("localhost", "127.0.0.1", "::1")) proxy(Proxy.NO_PROXY) }
+            .connectTimeout(PROVIDER_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(30, TimeUnit.SECONDS)
             .build()
             .newCall(request)
 
@@ -90,10 +95,15 @@ internal fun decodeModelCatalog(json: String): List<ProviderModel> {
             if (id.isEmpty() || id.length > 256 || id.any(Char::isISOControl)) continue
             val name = model.opt("name") as? String ?: model.opt("display_name") as? String
             val title = name?.trim()?.take(256).orEmpty().ifBlank { id }
-            val tools = model.optJSONArray("supported_parameters")?.let { parameters ->
-                (0 until parameters.length()).any { parameters.optString(it) == "tools" }
+            val parameters = model.optJSONArray("supported_parameters")?.let { values ->
+                (0 until values.length()).map { values.optString(it) }.toSet()
             }
-            add(ProviderModel(id, title, tools))
+            add(ProviderModel(
+                id, title, parameters?.contains("tools"),
+                parameters?.let { "reasoning" in it || "reasoning_effort" in it },
+                model.optJSONObject("top_provider")?.optInt("max_completion_tokens")
+                    ?.takeIf { it >= OUTPUT_TOKEN_RANGE.first },
+            ))
         }
     }.distinctBy(ProviderModel::id).sortedBy(ProviderModel::id)
 }

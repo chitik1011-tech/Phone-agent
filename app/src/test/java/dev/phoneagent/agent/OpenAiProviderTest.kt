@@ -1,5 +1,6 @@
 package dev.phoneagent.agent
 
+import dev.phoneagent.providers.ReasoningEffort
 import java.io.Closeable
 import java.io.IOException
 import java.net.InetAddress
@@ -84,15 +85,37 @@ class OpenAiProviderTest {
                 else -> error("Unexpected request: ${request.methodAndPath}")
             }
         }.use { server ->
-            val provider = OpenAiProvider(ProviderConfig(server.baseUrl, "test-model", "test-key"))
+            val provider = OpenAiProvider(ProviderConfig(
+                server.baseUrl, "test-model", "test-key", maxOutputTokens = 8_192, reasoning = ReasoningEffort.HIGH,
+            ))
             assertEquals(listOf("test-model"), provider.models())
             val turn = provider.complete(listOf(AgentMessage("user", "Check transport")), emptyList()) {}
             assertEquals("Verified", turn.message.content)
             val (authentication, body) = received.get()
             assertEquals("Bearer test-key", authentication)
             assertEquals("test-model", body.getString("model"))
+            assertEquals(8_192, body.getInt("max_tokens"))
+            assertEquals("high", body.getString("reasoning_effort"))
             assertEquals("Check transport", body.getJSONArray("messages").getJSONObject(0).getString("content"))
         }
+    }
+
+    @Test
+    fun sendsTheDocumentedReasoningFieldsAndKeepsDeepSeekToolTurnsCompatible() {
+        val openRouter = JSONObject()
+        configureReasoning(openRouter, "openrouter.ai", ReasoningEffort.HIGH, hasTools = true)
+        assertEquals("high", openRouter.getJSONObject("reasoning").getString("effort"))
+        assertFalse(openRouter.has("reasoning_effort"))
+
+        val directChat = JSONObject()
+        configureReasoning(directChat, "api.deepseek.com", ReasoningEffort.MAX, hasTools = false)
+        assertEquals("enabled", directChat.getJSONObject("thinking").getString("type"))
+        assertEquals("max", directChat.getString("reasoning_effort"))
+
+        val directTools = JSONObject()
+        configureReasoning(directTools, "api.deepseek.com", ReasoningEffort.MAX, hasTools = true)
+        assertEquals("disabled", directTools.getJSONObject("thinking").getString("type"))
+        assertFalse(directTools.has("reasoning_effort"))
     }
 
     @Test
