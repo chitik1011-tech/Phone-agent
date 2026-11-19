@@ -2,6 +2,10 @@
 
 Native Android IDE for local projects, an interactive Termux terminal, and API-backed coding agents. Supports Android 10 or later. The first development preview targets Android 15, including the OnePlus Ace 5.
 
+**Project maintainer / Автор проекта** [@chitik1011-tech](https://github.com/chitik1011-tech).
+
+Мобильная IDE для Android со встроенным терминалом Termux и ИИ-агентами для работы с кодом. Написана на Kotlin с Jetpack Compose.
+
 ## Build
 
 Install JDK 17 and the Android SDK platform and build-tools for API 35, then run:
