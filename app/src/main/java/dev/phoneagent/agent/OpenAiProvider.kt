@@ -1,5 +1,9 @@
 package dev.phoneagent.agent
 
+import dev.phoneagent.providers.DEFAULT_OUTPUT_TOKENS
+import dev.phoneagent.providers.OUTPUT_TOKEN_RANGE
+import dev.phoneagent.providers.PROVIDER_CONNECT_TIMEOUT_SECONDS
+import dev.phoneagent.providers.ReasoningEffort
 import java.io.IOException
 import java.net.Proxy
 import java.util.concurrent.TimeUnit
@@ -30,10 +34,10 @@ data class ProviderConfig(
     val baseUrl: String,
     val model: String,
     val apiKey: String = "",
-    val timeoutSeconds: Int = 120,
-    val maxOutputTokens: Int = 4_096,
+    val maxOutputTokens: Int = DEFAULT_OUTPUT_TOKENS,
+    val reasoning: ReasoningEffort = ReasoningEffort.DEFAULT,
 ) {
-    override fun toString(): String = "ProviderConfig(model=$model, timeoutSeconds=$timeoutSeconds)"
+    override fun toString(): String = "ProviderConfig(model=$model, reasoning=$reasoning)"
 }
 
 class OpenAiProvider(private val config: ProviderConfig) : AgentProvider {
@@ -45,9 +49,9 @@ class OpenAiProvider(private val config: ProviderConfig) : AgentProvider {
         .followSslRedirects(false)
         .retryOnConnectionFailure(false)
         .apply { if (endpoint.host in loopbackHosts) proxy(Proxy.NO_PROXY) }
-        .callTimeout(config.timeoutSeconds.coerceIn(10, 600).toLong(), TimeUnit.SECONDS)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(config.timeoutSeconds.coerceIn(10, 600).toLong(), TimeUnit.SECONDS)
+        .connectTimeout(PROVIDER_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .callTimeout(600, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
     suspend fun models(): List<String> = exchange(request("models").get().build()) { body ->
@@ -72,18 +76,15 @@ class OpenAiProvider(private val config: ProviderConfig) : AgentProvider {
             .put("stream", true)
             .put(
                 if (endpoint.host == "api.openai.com") "max_completion_tokens" else "max_tokens",
-                config.maxOutputTokens.coerceIn(128, 64_000),
+                config.maxOutputTokens.coerceIn(OUTPUT_TOKEN_RANGE),
             )
         if (endpoint.host == "api.openai.com") {
             payload.put("stream_options", JSONObject().put("include_usage", true))
         }
         if (tools.isNotEmpty()) {
             payload.put("tools", JSONArray(tools))
-            if (endpoint.host == "api.deepseek.com") {
-                // DeepSeek thinking mode requires replay of private reasoning for each tool turn.
-                payload.put("thinking", JSONObject().put("type", "disabled"))
-            }
         }
+        configureReasoning(payload, endpoint.host, config.reasoning, hasTools = tools.isNotEmpty())
         val request = request("chat/completions")
             .header("Accept", "text/event-stream")
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
@@ -139,6 +140,24 @@ class OpenAiProvider(private val config: ProviderConfig) : AgentProvider {
                 cancelCall.cancel()
             }
         }
+}
+
+internal fun configureReasoning(payload: JSONObject, host: String, effort: ReasoningEffort, hasTools: Boolean) {
+    if (host == "api.deepseek.com" && hasTools) {
+        // Thinking with tools requires replay of reasoning_content, which the agent does not persist.
+        payload.put("thinking", JSONObject().put("type", "disabled"))
+        return
+    }
+    val value = effort.wireValue ?: return
+    when (host) {
+        "api.deepseek.com" -> {
+            payload.put("thinking", JSONObject().put("type", "enabled"))
+            payload.put("reasoning_effort", value)
+        }
+        "openrouter.ai" -> payload.put("reasoning", JSONObject().put("effort", value))
+        "api.anthropic.com" -> Unit
+        else -> payload.put("reasoning_effort", value)
+    }
 }
 
 internal fun validateEndpoint(raw: String): HttpUrl {

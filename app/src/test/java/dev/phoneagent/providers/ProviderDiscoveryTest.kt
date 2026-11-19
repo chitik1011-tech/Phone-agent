@@ -20,6 +20,7 @@ class ProviderDiscoveryTest {
             assertEquals("https://openrouter.ai/api/v1/models", request.url.toString())
             assertEquals("Bearer test-secret", request.header("Authorization"))
             assertEquals("GET", request.method)
+            assertEquals(3_000, chain.connectTimeoutMillis())
             Response.Builder()
                 .request(request)
                 .protocol(Protocol.HTTP_1_1)
@@ -28,7 +29,7 @@ class ProviderDiscoveryTest {
                 .body("""
                     {"data":[
                       {"id":"provider/b","supported_parameters":[]},
-                      {"id":"provider/a","name":"Agent model","supported_parameters":["tools"]},
+                      {"id":"provider/a","name":"Agent model","supported_parameters":["tools","reasoning"],"top_provider":{"max_completion_tokens":16384}},
                       {"id":"provider/a"},
                       {"id":"local"},
                       {},
@@ -44,8 +45,8 @@ class ProviderDiscoveryTest {
         assertEquals(
             listOf(
                 ProviderModel("local", "local", null),
-                ProviderModel("provider/a", "Agent model", true),
-                ProviderModel("provider/b", "provider/b", false),
+                ProviderModel("provider/a", "Agent model", true, true, 16_384),
+                ProviderModel("provider/b", "provider/b", false, false),
             ),
             models,
         )

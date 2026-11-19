@@ -1,6 +1,7 @@
-## Phone Agent 0.1.3 preview
+## Phone Agent 0.1.4 preview
 
-- The agent chat opens immediately on launch. A project is optional for chat. Attach a project to give the agent access to workspace tools.
-- Select the model from the chat toolbar. After setting up a provider, browse its model catalog or enter a model ID.
-- The app follows Android's language setting. You can also choose Русский or English under Settings → Language.
-- The APK includes v1, v2 and v3 signatures. In-place updates require the same certificate as the installed build. CI preview builds use a debug certificate unless release signing is configured.
+- The chat model picker lists saved models across providers. Import a provider catalog or add an ID once, then browse or search locally. Model selection, output limits and reasoning preferences persist across app launches.
+- Choose an available reasoning level and set a token cap before using a model. Direct Claude and DeepSeek workspace tool requests use the compatible defaults. Availability depends on the provider and model.
+- Provider connections use a fixed 3-second connection timeout. Streaming responses have a separate read deadline.
+- The APK includes v1, v2 and v3 signatures. In-place updates require the same signing certificate. CI previews use a debug certificate unless release signing is configured.
+- Provider requests are verified against fixtures. Live accounts and OnePlus ColorOS installation need separate checks.
