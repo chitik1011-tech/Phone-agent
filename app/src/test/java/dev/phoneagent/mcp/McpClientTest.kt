@@ -1,7 +1,6 @@
 package dev.phoneagent.mcp
 
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
@@ -19,12 +18,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.ConcurrentLinkedQueue
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class McpClientTest {
     private val server = McpServer(name = "Weather", url = "https://example.com/mcp", token = "test-token")
 
     @Test
-    fun modernCatalogPaginatesAndApprovedCallReadsSse() = runTest {
+    fun modernCatalogPaginatesAndApprovedCallReadsSse() = runBlocking {
         val observed = ConcurrentLinkedQueue<String>()
         val http = fake { request ->
             val message = request.json()
@@ -71,7 +69,7 @@ class McpClientTest {
     }
 
     @Test
-    fun legacyConnectsWithSessionAndClosesAfterDiscoveryAndCall() = runTest {
+    fun legacyConnectsWithSessionAndClosesAfterDiscoveryAndCall() = runBlocking {
         val methods = ConcurrentLinkedQueue<String>()
         var sessions = 0
         val client = McpClient(server, fake { request ->
@@ -114,7 +112,7 @@ class McpClientTest {
     }
 
     @Test
-    fun refusesUnauthorizedRequestsWithoutHandshaking() = runTest {
+    fun refusesUnauthorizedRequestsWithoutHandshaking() = runBlocking {
         val calls = ConcurrentLinkedQueue<String>()
         val client = McpClient(server, fake {
             calls.add(it.json().getString("method"))
