@@ -31,6 +31,8 @@ jobs:
           sudo chmod a+rw /dev/kvm
           tools="$ANDROID_HOME/cmdline-tools/latest/bin"
           "$tools/sdkmanager" 'emulator' 'platform-tools' 'system-images;android-35;default;x86_64'
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/phone-agent-avds"
+          mkdir -p "$ANDROID_AVD_HOME"
           printf 'no\n' | "$tools/avdmanager" create avd --force --name phone_agent_published \
             --package 'system-images;android-35;default;x86_64' --device pixel_5
           adb="$ANDROID_HOME/platform-tools/adb"
@@ -39,15 +41,16 @@ jobs:
             -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel on > "$RUNNER_TEMP/emulator.log" 2>&1 &
           emulator_pid=$!
           trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
-          timeout 150 "$adb" wait-for-device
           deadline=$((SECONDS + 240))
-          until [[ "$("$adb" shell getprop sys.boot_completed | tr -d '\r')" == 1 ]]; do
+          until [[ "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" == 1 ]]; do
             if (( SECONDS >= deadline )) || ! kill -0 "$emulator_pid" 2>/dev/null; then
-              tail -50 "$RUNNER_TEMP/emulator.log"
+              "$adb" devices -l
+              tail -80 "$RUNNER_TEMP/emulator.log"
               exit 1
             fi
             sleep 5
           done
+          "$adb" devices -l
           test "$("$adb" shell getprop ro.build.version.sdk | tr -d '\r')" = 35
           "$adb" shell input keyevent 82
           "$adb" install "$RUNNER_TEMP/old.apk"
