@@ -1,0 +1,63 @@
+name: Verify published Phone Agent APK
+on:
+  push:
+    branches: [codex/verify-published-apk-014]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  published-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download published APKs and check their hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 2 https://github.com/chitik1011-tech/Phone-agent/releases/download/v0.1.3-preview.1/Phone-Agent-debug.apk -o old.apk
+          curl -fsSL --retry 2 https://github.com/chitik1011-tech/Phone-agent/releases/download/v0.1.4-preview.1/Phone-Agent-debug.apk -o published.apk
+          sha256sum -c <<'SUMS'
+          9f78ac077f8e0b930d1aa7dac5513f65874cf4952a7b19d29d68d6c07220feff  old.apk
+          0118284867dfe33e2aadcc28fa0e73afcb89d8408ea1fbc911b318326f8e97a2  published.apk
+          SUMS
+      - name: Install and launch the exact APK on Android 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          tools="$ANDROID_HOME/cmdline-tools/latest/bin"
+          "$tools/sdkmanager" 'emulator' 'platform-tools' 'system-images;android-35;default;x86_64'
+          printf 'no\n' | "$tools/avdmanager" create avd --force --name phone_agent_published \
+            --package 'system-images;android-35;default;x86_64' --device pixel_5
+          adb="$ANDROID_HOME/platform-tools/adb"
+          "$adb" start-server
+          "$ANDROID_HOME/emulator/emulator" -avd phone_agent_published -no-window -no-audio \
+            -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel on > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator_pid=$!
+          trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+          timeout 150 "$adb" wait-for-device
+          deadline=$((SECONDS + 240))
+          until [[ "$("$adb" shell getprop sys.boot_completed | tr -d '\r')" == 1 ]]; do
+            if (( SECONDS >= deadline )) || ! kill -0 "$emulator_pid" 2>/dev/null; then
+              tail -50 "$RUNNER_TEMP/emulator.log"
+              exit 1
+            fi
+            sleep 5
+          done
+          test "$("$adb" shell getprop ro.build.version.sdk | tr -d '\r')" = 35
+          "$adb" shell input keyevent 82
+          "$adb" install "$RUNNER_TEMP/old.apk"
+          if "$adb" install -r "$RUNNER_TEMP/published.apk" > "$RUNNER_TEMP/upgrade.log" 2>&1; then
+            printf 'Unexpected success updating with a different signer.\n' >&2
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/upgrade.log"
+          grep -F 'INSTALL_FAILED_UPDATE_INCOMPATIBLE' "$RUNNER_TEMP/upgrade.log"
+          "$adb" uninstall dev.phoneagent
+          "$adb" install "$RUNNER_TEMP/published.apk"
+          "$adb" shell am start -W -n dev.phoneagent/.MainActivity | tee "$RUNNER_TEMP/launch.log"
+          grep -q 'Status: ok' "$RUNNER_TEMP/launch.log"
